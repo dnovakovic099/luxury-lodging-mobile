@@ -5,11 +5,11 @@ workflows:
     instance_type: mac_mini_m2
     environment:
       android_signing:
-        - keystore_reference # Replace with your actual keystore reference
+        - luxury_lodging # Replace with your actual keystore reference
       groups:
         - google_play
       vars:
-        PACKAGE_NAME: "com.luxurylodging.mobile" # Replace with your app's package name
+        PACKAGE_NAME: "com.luxurylodging_mobile" # Replace with your app's package name
     scripts:
       - name: Set Android SDK location
         script: |
@@ -37,8 +37,7 @@ workflows:
     publishing:
       email:
         recipients:
-          - user_1@example.com # Replace with actual email
-          - user_2@example.com
+          - dnovakovic21@gmail.com # Replace with actual email
         notify:
           success: true
           failure: false
@@ -56,10 +55,10 @@ workflows:
     environment:
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.luxurylodging.mobile # Replace with your app's bundle identifier
+        bundle_identifier: com.luxurylodging_mobile # Replace with your app's bundle identifier
       vars:
-        BUNDLE_ID: "com.luxurylodging.mobile" # Replace with your app's bundle identifier
-        XCODE_WORKSPACE: "LuxuryLodging.xcworkspace" # Update with your actual Xcode workspace name
+        BUNDLE_ID: "com.luxurylodging_mobile" # Replace with your app's bundle identifier
+        XCODE_WORKSPACE: "luxury_lodging_mobile.xcworkspace" # Update with your actual Xcode workspace name
         XCODE_SCHEME: "LuxuryLodging" # Update with your actual Xcode scheme
         APP_STORE_APPLE_ID: 1555555551 # Replace with your app's Apple ID
     scripts:
@@ -95,8 +94,7 @@ workflows:
     publishing:
       email:
         recipients:
-          - user_1@example.com # Replace with actual email
-          - user_2@example.com
+          - dnovakovic21@gmail.com # Replace with actual email
         notify:
           success: true
           failure: false

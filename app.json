@@ -1,4 +1,10 @@
 {
   "name": "luxury_lodging_mobile",
-  "displayName": "luxury_lodging_mobile"
+  "displayName": "luxury_lodging_mobile",
+  "ios": {
+    "bundleIdentifier": "com.luxurylodging_mobile"
+  },
+  "android": {
+    "package": "com.luxurylodging_mobile"
+  }
 }
