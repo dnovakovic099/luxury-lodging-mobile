@@ -6,25 +6,30 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
-  Dimensions,
+  Dimensions, TextInput,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Camera, Paintbrush, Package, Users, Star, Sparkles, TrendingUp, DollarSign, Zap } from 'lucide-react-native';
 import { theme } from '../theme';
-import { fetchListings } from '../services/api';
+import {fetchListings, requestRevenueCalculation} from '../services/api';
 
 import PropertyPicker from '../components/PropertyPicker';
 import RevenueCard from '../components/RevenueCard';
 import GradeIndicator from '../components/GradeIndicator';
 import ReferralSection from '../components/ReferralSection';
+import {useAuth} from '../context/AuthContext';
+import {useConsultation} from '../context/ConsultationContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const EarnMoreScreen = () => {
+  const {  message, sendMessage, setMessage, isLoading, complete,} = useConsultation();
   const [selectedProperty, setSelectedProperty] = useState('');
   const [properties, setProperties] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+
 
   const fetchPropertyData = async () => {
     setLoading(true);
@@ -56,8 +61,8 @@ const EarnMoreScreen = () => {
   };
 
   const grades = [
-    { 
-      label: 'Photography', 
+    {
+      label: 'Photography',
       grade: 35,
       icon: Camera,
       details: 'Only 8 photos available. Professional photography could increase bookings by 35%',
@@ -65,8 +70,8 @@ const EarnMoreScreen = () => {
       improvement: '+65% potential improvement',
       aiRecommendation: 'AI analysis suggests focusing on exterior twilight shots'
     },
-    { 
-      label: 'Design', 
+    {
+      label: 'Design',
       grade: 72,
       icon: Paintbrush,
       details: 'Modern updates needed in kitchen and bathrooms',
@@ -74,8 +79,8 @@ const EarnMoreScreen = () => {
       improvement: '+28% potential improvement',
       aiRecommendation: 'Similar properties see 15% higher bookings with updated kitchens'
     },
-    { 
-      label: 'Amenities', 
+    {
+      label: 'Amenities',
       grade: 90,
       icon: Package,
       details: 'Adding a hot tub could increase annual revenue by $20,000',
@@ -83,8 +88,8 @@ const EarnMoreScreen = () => {
       improvement: '+10% potential improvement',
       aiRecommendation: 'Market analysis shows high demand for outdoor features'
     },
-    { 
-      label: 'Sleeping Count', 
+    {
+      label: 'Sleeping Count',
       grade: 45,
       icon: Users,
       details: 'Current: 8 guests | Potential: 15 guests',
@@ -92,8 +97,8 @@ const EarnMoreScreen = () => {
       improvement: '+55% potential improvement',
       aiRecommendation: 'Space optimization could add 2 more sleeping areas'
     },
-    { 
-      label: 'Reviews', 
+    {
+      label: 'Reviews',
       grade: 95,
       icon: Star,
       details: '4.92 average from 128 reviews. Top 2% in your market',
@@ -103,10 +108,12 @@ const EarnMoreScreen = () => {
     },
   ];
 
+
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <View style={styles.pickerWrapper}>
-        <PropertyPicker 
+        <PropertyPicker
           selectedProperty={selectedProperty}
           onValueChange={handlePropertyChange}
           properties={properties}
@@ -117,7 +124,7 @@ const EarnMoreScreen = () => {
 
       <View style={styles.content}>
         <View style={styles.metricsContainer}>
-          <RevenueCard 
+          <RevenueCard
             title="Monthly Revenue"
             current="4,500"
             potential="6,200"
@@ -125,7 +132,7 @@ const EarnMoreScreen = () => {
             marketColor="#4B5563"
           />
           <View style={styles.metricSpacing} />
-          <RevenueCard 
+          <RevenueCard
             title="Cleaning Fee"
             current="150"
             potential="125"
@@ -151,12 +158,24 @@ const EarnMoreScreen = () => {
             ))}
           </View>
         </View>
+        <View style={styles.messageContainer}>
+          <TextInput
+            style={styles.input}
+            onChangeText={setMessage}
+            value={message}
+            placeholderTextColor={theme.colors.text.primary}
+            placeholder="Write your message here..."
+            multiline
+          />
+        </View>
+
+        {complete && <Text style={styles.completeText}>Message sent successfully</Text>}
 
         <View style={styles.actionSection}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.consultButton}
             activeOpacity={0.8}
-          >
+            onPress={() => sendMessage()}>
             <View style={styles.consultButtonContent}>
               <Icon name="trending-up" size={18} color="white" />
               <Text style={styles.consultButtonText}>
@@ -230,6 +249,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 24,
     alignItems: 'center',
+    paddingBottom: 200,
   },
   consultButton: {
     backgroundColor: theme.colors.primary,
@@ -262,6 +282,22 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 34,
+  },
+  messageContainer: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.card.border,
+  },
+  input: {
+    color: theme.colors.text.primary,
+    height: 70,
+    margin: 12,
+  },
+  completeText: {
+    marginTop: 10,
+    color: theme.colors.success,
+    fontSize: 14,
   },
 });
 

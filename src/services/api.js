@@ -1,33 +1,71 @@
 // services/api.js
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 const API_BASE_URL = 'https://api.hostaway.com/v1';
+const API_SERVER_URL = 'https://securestay.ai/securestay_api';
 let accessToken = null;
 
-export const authenticateUser = async (email, password) => {
+export const authenticateUser = async (email, password,setErrorMessage) => {
+
   try {
-    const response = await fetch(`${API_BASE_URL}/auth`, {
+    const response = await fetch(`${API_SERVER_URL}/auth/signin`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ email, password }),
     });
-
+    console.log('response', response);
     if (response.ok) {
       const data = await response.json();
       accessToken = data.accessToken;
       return {
-        userId: data.userId,
-        email: data.email,
+        email: email,
         accessToken: data.accessToken,
       };
     } else {
+      console.log(' response', response)
+      setErrorMessage('Authentication failed')
       throw new Error('Authentication failed');
     }
   } catch (error) {
+    setErrorMessage(error);
     console.error('Auth error:', error);
     throw error;
   }
 };
+
+export const uploadMessage = async (message, token) => {
+  console.log('uploadMessage res', message);
+  console.log('uploadMessage token', token);
+  try {
+    const response = await fetch(`${API_SERVER_URL}/accounting/requestrevenuecalculation`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message: message }),
+    });
+
+    console.log('response', response);
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log('response data', data);
+      return data;
+    }
+
+    const errorText = await response.text();
+    throw new Error(`Failed requestRevenueCalculation: ${errorText}`);
+
+  } catch (error) {
+    console.error('Error requestRevenueCalculation:', error);
+    throw error;
+  }
+};
+
+
 
 export const fetchAccessToken = async () => {
   try {
@@ -127,6 +165,29 @@ export const fetchUsers = async () => {
     throw new Error('Failed to fetch users');
   } catch (error) {
     console.error('Error fetching users:', error);
+    throw error;
+  }
+};
+
+export const requestRevenueCalculation = async (message) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/accounting/requestrevenuecalculation`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Cache-control': 'no-cache',
+      },
+      body: {message: message},
+    });
+    console.log('res revenu',response);
+    if (response.ok) {
+
+      const data = await response.json();
+      return data;
+    }
+    throw new Error('Failed requestRevenueCalculation');
+  } catch (error) {
+    console.error('Error requestRevenueCalculation:', error);
     throw error;
   }
 };

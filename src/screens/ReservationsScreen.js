@@ -4,7 +4,7 @@ import {
   StyleSheet,
   RefreshControl,
   ScrollView,
-  Dimensions,
+  Dimensions, TextInput,
 } from 'react-native';
 import ReservationsTable from '../components/ReservationsTable';
 import { theme } from '../theme';
@@ -19,7 +19,9 @@ const ReservationsScreen = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const validReservations = reservations?.filter(res => 
+
+
+  const validReservations = reservations?.filter(res =>
     VALID_STATUSES.includes(res.status)
   ) || [];
 
@@ -30,11 +32,13 @@ const ReservationsScreen = ({ navigation }) => {
   };
 
   const handleRowPress = (reservation) => {
+
+    console.log(reservation)
     navigation.navigate('ReservationDetail', { reservation });
   };
 
   return (
-    <ScrollView 
+    <ScrollView
       style={styles.container}
       contentContainerStyle={styles.contentContainer}
       refreshControl={
@@ -46,8 +50,9 @@ const ReservationsScreen = ({ navigation }) => {
         />
       }
     >
+
       <View style={styles.tableContainer}>
-        <ReservationsTable 
+        <ReservationsTable
           reservations={validReservations}
           onRowPress={handleRowPress}
           showPropertyName={true}

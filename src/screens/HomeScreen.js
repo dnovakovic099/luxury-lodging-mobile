@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  StyleSheet, 
-  RefreshControl, 
+import {
+  View,
+  StyleSheet,
+  RefreshControl,
   ScrollView,
   ActivityIndicator,
   SafeAreaView
@@ -15,7 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { processRevenueData, getChartLabels } from '../utils/revenueUtils';
 
 const HomeScreen = () => {
-  const { reservations, refreshData, isLoading } = useAuth();
+  const { reservations, refreshData, isLoading, removeToken } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [revenue, setRevenue] = useState(0);
   const [chartData, setChartData] = useState(null);
@@ -43,16 +43,16 @@ const HomeScreen = () => {
 
   const processData = () => {
     if (!reservations) return;
-    
+
     const currentYear = new Date().getFullYear();
-    const validReservations = reservations.filter(res => 
-      VALID_STATUSES.includes(res.status) && 
+    const validReservations = reservations.filter(res =>
+      VALID_STATUSES.includes(res.status) &&
       new Date(res.arrivalDate).getFullYear() === currentYear
     );
 
-    const resos = validReservations.map(r => ({ 
-      arrival: r.arrivalDate, 
-      price: r.airbnbExpectedPayoutAmount || r.totalPrice 
+    const resos = validReservations.map(r => ({
+      arrival: r.arrivalDate,
+      price: r.airbnbExpectedPayoutAmount || r.totalPrice
     })).sort((a, b) => new Date(a.arrival) - new Date(b.arrival));
 
     const groupByMonth = (data) => {
@@ -76,8 +76,8 @@ const HomeScreen = () => {
     };
 
     const groupedPrices = groupByMonth(resos);
-    
-    const ytdRevenue = validReservations.reduce((sum, res) => 
+
+    const ytdRevenue = validReservations.reduce((sum, res) =>
       sum + (res.airbnbExpectedPayoutAmount || res.totalPrice), 0);
     setRevenue(ytdRevenue);
 
@@ -88,6 +88,12 @@ const HomeScreen = () => {
   useEffect(() => {
     processData();
   }, [reservations]);
+
+  // useEffect(() => {
+  //  removeToken()
+  // }, []);
+
+
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -121,8 +127,8 @@ const HomeScreen = () => {
     }
 
     return (
-      <RevenueChart 
-        data={{ 
+      <RevenueChart
+        data={{
           monthlyRevenue: chartData[selectedPeriod].data,
           labels: getChartLabels(selectedPeriod),
           total: chartData[selectedPeriod].total,
@@ -135,7 +141,7 @@ const HomeScreen = () => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView 
+      <ScrollView
         style={styles.container}
         contentContainerStyle={styles.contentContainer}
         refreshControl={
@@ -147,7 +153,7 @@ const HomeScreen = () => {
         }
       >
         <ListingActions actions={mockActions} />
-        
+
         <View style={styles.summaryContainer}>
           <RevenueSummary data={summaryData} loading={isLoading} />
         </View>

@@ -2,7 +2,7 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, StyleSheet, StatusBar, SafeAreaView } from 'react-native';
+import {View, StyleSheet, StatusBar, SafeAreaView, ActivityIndicator, Image} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { theme } from './src/theme';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
@@ -15,6 +15,7 @@ import ListingDetailScreen from './src/screens/ListingDetailScreen';
 import ReservationsScreen from './src/screens/ReservationsScreen';
 import SupportScreen from './src/screens/SupportScreen';
 import EarnMoreScreen from './src/screens/EarnMoreScreen';
+import {ConsultationProvider} from './src/context/ConsultationContext';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -81,15 +82,15 @@ const MainTabs = () => (
         ),
       }}
     />
-    <Tab.Screen
-      name="Support"
-      component={SupportScreen}
-      options={{
-        tabBarIcon: ({ color, size }) => (
-          <Ionicons name="chatbubble-outline" size={24} color={color} />
-        ),
-      }}
-    />
+    {/*<Tab.Screen*/}
+    {/*  name="Support"*/}
+    {/*  component={SupportScreen}*/}
+    {/*  options={{*/}
+    {/*    tabBarIcon: ({ color, size }) => (*/}
+    {/*      <Ionicons name="chatbubble-outline" size={24} color={color} />*/}
+    {/*    ),*/}
+    {/*  }}*/}
+    {/*/>*/}
     <Tab.Screen
       name="EarnMore"
       component={EarnMoreScreen}
@@ -106,7 +107,12 @@ const Navigation = () => {
   const { userData, isLoading } = useAuth();
 
   if (isLoading) {
-    return null; // Or a loading screen
+    return (
+      <View style={styles.loadingContainer}>
+        <Image source={require('./src/assets/logo.png')} style={styles.logo} />
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
   }
 
   return (
@@ -119,8 +125,8 @@ const Navigation = () => {
       }}
     >
       {!userData || !userData.userId ? (
-        <Stack.Screen 
-          name="Auth" 
+        <Stack.Screen
+          name="Auth"
           component={AuthScreen}
         />
       ) : (
@@ -149,12 +155,14 @@ const Navigation = () => {
 const App = () => {
   return (
     <AuthProvider>
+      <ConsultationProvider>
       <NavigationContainer>
         <StatusBar barStyle="light-content" backgroundColor={theme.colors.surface} />
         <SafeAreaView style={styles.container}>
           <Navigation />
         </SafeAreaView>
       </NavigationContainer>
+      </ConsultationProvider>
     </AuthProvider>
   );
 };
@@ -163,6 +171,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
+  },
+  loadingContainer: {
+    height: 300,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logo: {
+    alignSelf: 'center',
+    marginBottom: theme.spacing.xl * 2,
+    width: 300,
+    height: 300,
+    resizeMode: 'contain',
   },
 });
 

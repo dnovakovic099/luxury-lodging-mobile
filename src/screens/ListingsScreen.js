@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  FlatList, 
-  StyleSheet, 
+import {
+  View,
+  FlatList,
+  StyleSheet,
   Text,
   RefreshControl,
   TouchableOpacity,
@@ -53,7 +53,7 @@ const ListingsScreen = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const { listings, reservations } = useAuth();
 
-  const filteredListings = listings.filter(listing => 
+  const filteredListings = listings?.filter(listing =>
     listing.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -61,9 +61,9 @@ const ListingsScreen = () => {
 
   const getPropertyRevenue = (propertyId) => {
     if (!reservations) return 0;
-    
+
     // Filter reservations for this property that are valid and from this year
-    const propertyReservations = reservations.filter(res => 
+    const propertyReservations = reservations.filter(res =>
       res.listingMapId === propertyId && // Match property
       VALID_STATUSES.includes(res.status) && // Valid status
       new Date(res.arrivalDate).getFullYear() === new Date().getFullYear() // This year only
@@ -105,12 +105,12 @@ const ListingsScreen = () => {
         },
       })}
     >
-      <TouchableOpacity 
+      <TouchableOpacity
         activeOpacity={0.2}
         onPress={() => {
           if (navigation && navigation.navigate) {
-            navigation.navigate('ListingDetail', { 
-              property: item 
+            navigation.navigate('ListingDetail', {
+              property: item
             });
           } else {
             console.log('Navigation not available');
@@ -118,8 +118,8 @@ const ListingsScreen = () => {
         }}
         style={styles.touchable} // Add this style
       >
-        <PropertyCard 
-          property={item} 
+        <PropertyCard
+          property={item}
           revenue={getPropertyRevenue(item.id)}
           onPress={() => navigation.navigate('ListingDetail', { property: item })}
         />
@@ -143,7 +143,7 @@ const ListingsScreen = () => {
             </View>
           }
           // refreshControl={
-          //   <RefreshControl 
+          //   <RefreshControl
           //     onRefresh={fetchListingsData}
           //     tintColor={theme.colors.primary}
           //     colors={[theme.colors.primary]}

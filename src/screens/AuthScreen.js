@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, {useEffect, useState} from 'react';
 import {
   View,
   Text,
@@ -15,10 +15,16 @@ import { theme } from '../theme';
 import { useAuth } from '../context/AuthContext';
 
 const AuthScreen = () => {
-  const { signIn, signInWithGoogle } = useAuth();
+  const { signIn, signInWithGoogle , getToken, checkToken,removeToken, errorMessage} = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+
+
+  useEffect( () => {
+  checkToken();
+  }, []);
 
   const handleAuth = async () => {
     if (!email || !password) {
@@ -29,11 +35,13 @@ const AuthScreen = () => {
     setIsLoading(true);
 
     try {
-      await signIn({ userId: 64614 });
-      // await signIn({ email, password });
+      // await signIn({ userId: 64614 });
+      console.log('EMAIL, email:', email, password);
+      await signIn({ email, password });
     } catch (error) {
       Alert.alert('Error', error.message);
     } finally {
+      console.log('finaly', email, password);
       setIsLoading(false);
     }
   };
@@ -49,8 +57,7 @@ const AuthScreen = () => {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
+      style={styles.container}>
       <View style={styles.content}>
         <Image source={require('../assets/logo.png')} style={styles.logo} />
 
@@ -76,15 +83,14 @@ const AuthScreen = () => {
             editable={!isLoading}
           />
 
-          <TouchableOpacity style={styles.forgotPassword}>
-            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-          </TouchableOpacity>
+          {/*<TouchableOpacity style={styles.forgotPassword}>*/}
+          {/*  <Text style={styles.forgotPasswordText}>Forgot Password?</Text>*/}
+          {/*</TouchableOpacity>*/}
 
           <TouchableOpacity
             style={[styles.button, isLoading && styles.buttonDisabled]}
             onPress={handleAuth}
-            disabled={isLoading}
-          >
+            disabled={isLoading}>
             {isLoading ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
@@ -92,16 +98,18 @@ const AuthScreen = () => {
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={[styles.button, styles.buttonGoogle]}
-            onPress={handleGoogleSignIn}
-          >
-            <Image
-              source={require('../assets/google.webp')}
-              style={styles.googleLogo}
-            />
-            <Text style={styles.buttonGoogleText}>Sign in with Google</Text>
-          </TouchableOpacity>
+          <Text style={styles.errorText}>{errorMessage}</Text>
+
+          {/*<TouchableOpacity*/}
+          {/*  style={[styles.button, styles.buttonGoogle]}*/}
+          {/*  onPress={handleGoogleSignIn}*/}
+          {/*>*/}
+          {/*  <Image*/}
+          {/*    source={require('../assets/google.webp')}*/}
+          {/*    style={styles.googleLogo}*/}
+          {/*  />*/}
+          {/*  <Text style={styles.buttonGoogleText}>Sign in with Google</Text>*/}
+          {/*</TouchableOpacity>*/}
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -174,6 +182,10 @@ const styles = StyleSheet.create({
     ...theme.typography.button,
     color: '#000000',
   },
+  errorText: {
+    color: 'red',
+    marginTop: 10,
+  }
 });
 
 export default AuthScreen;
