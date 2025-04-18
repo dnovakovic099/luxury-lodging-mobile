@@ -93,7 +93,6 @@ const ReservationsScreen = ({ navigation }) => {
   // Load reservations with filters
   const loadFilteredReservations = async () => {
     if (!listings || !listings.length) {
-      console.log('No listings available, skipping reservation fetch');
       setIsLoading(false);
       return;
     }
@@ -125,9 +124,7 @@ const ReservationsScreen = ({ navigation }) => {
           // Use the numeric ID
           const selectedListingId = Number(selectedListingObj.id);
           relevantListingIds = [selectedListingId];
-          console.log(`Selected specific listing ID: ${selectedListingId}`);
         } else {
-          console.log(`Could not find listing with name: ${selectedListing}`);
           // Fallback to all listings if we can't find the selected one
           relevantListingIds = listings.map(listing => Number(listing.id)).filter(id => !isNaN(id));
         }
@@ -135,7 +132,6 @@ const ReservationsScreen = ({ navigation }) => {
         // If "All Properties" is selected, include all listing IDs
         // Ensure they are numbers and filter out any NaN values
         relevantListingIds = listings.map(listing => Number(listing.id)).filter(id => !isNaN(id));
-        console.log(`Using all listing IDs: [${relevantListingIds.join(', ')}]`);
       }
       
       // Common parameters for all API calls
@@ -155,7 +151,6 @@ const ReservationsScreen = ({ navigation }) => {
           listingMapIds: [relevantListingIds[0]]
         };
         
-        console.log('Fetching reservations for single listing with params:', JSON.stringify(params));
         const result = await getReservationsWithFinancialData(params);
         
         if (result?.reservations && Array.isArray(result.reservations)) {
@@ -163,7 +158,6 @@ const ReservationsScreen = ({ navigation }) => {
         }
       } else {
         // For multiple listings, we need to make separate API calls for each listing
-        console.log(`Need to fetch reservations for ${relevantListingIds.length} listings individually`);
         
         // Fetch reservations for each listing separately
         for (const listingId of relevantListingIds) {
@@ -172,15 +166,12 @@ const ReservationsScreen = ({ navigation }) => {
             listingMapIds: [listingId]
           };
           
-          console.log(`Fetching reservations for listing ${listingId}...`);
           const result = await getReservationsWithFinancialData(params);
           
           if (result?.reservations && Array.isArray(result.reservations)) {
             allReservations = [...allReservations, ...result.reservations];
           }
         }
-        
-        console.log(`Combined a total of ${allReservations.length} reservations from all listings`);
       }
       
       // Further filter by valid statuses if needed
@@ -195,24 +186,8 @@ const ReservationsScreen = ({ navigation }) => {
         return dateB - dateA;
       });
       
-      // Log the first reservation and its ownerPayout for debugging
-      if (sortedReservations.length > 0) {
-        const first = sortedReservations[0];
-        console.log('First reservation data:', {
-          id: first.id,
-          property: first.listingId || first.listingMapId,
-          arrivalDate: first.arrivalDate || first.checkInDate,
-          ownerPayout: first.ownerPayout,
-          financialData: first.financialData ? 'present' : 'missing',
-        });
-      } else {
-        console.log('No reservations found matching criteria');
-      }
-      
       setFilteredReservations(sortedReservations);
-      console.log(`Loaded ${sortedReservations.length} filtered reservations (from ${allReservations.length} total)`);
     } catch (error) {
-      console.error('Error loading reservations:', error);
       setFilteredReservations([]);
     } finally {
       setIsLoading(false);
@@ -222,13 +197,6 @@ const ReservationsScreen = ({ navigation }) => {
   
   // Apply filters when they change
   useEffect(() => {
-    console.log('Filter changed, reloading reservations with:', {
-      listing: selectedListing,
-      startDate: startDate ? startDate.toISOString() : null,
-      endDate: endDate ? endDate.toISOString() : null,
-      listingsCount: listings?.length || 0
-    });
-    
     // Add a small timeout to prevent rapid concurrent requests
     const timeoutId = setTimeout(() => {
       loadFilteredReservations();
@@ -237,19 +205,6 @@ const ReservationsScreen = ({ navigation }) => {
     // Cleanup the timeout if the effect runs again before it fires
     return () => clearTimeout(timeoutId);
   }, [selectedListing, startDate, endDate, listings]);
-  
-  // Make sure we're logging the financial data for debugging
-  useEffect(() => {
-    if (filteredReservations.length > 0) {
-      console.log('First reservation sample:', 
-        JSON.stringify({
-          id: filteredReservations[0].id,
-          ownerPayout: filteredReservations[0].ownerPayout,
-          financialData: filteredReservations[0].financialData
-        }, null, 2)
-      );
-    }
-  }, [filteredReservations]);
   
   // Initialize with all reservations
   useEffect(() => {
@@ -314,7 +269,7 @@ const ReservationsScreen = ({ navigation }) => {
   };
 
   const handleRowPress = (reservation) => {
-    console.log(reservation);
+    // Removed console.log
     navigation.navigate('ReservationDetail', { reservation });
   };
 

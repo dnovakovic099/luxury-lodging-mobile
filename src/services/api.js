@@ -130,9 +130,6 @@ export const fetchReservations = async (params = {}) => {
       if (Array.isArray(params.listingMapIds) && params.listingMapIds.length > 0) {
         // Take only the first ID from the array
         apiParams.listingId = params.listingMapIds[0];
-        if (params.listingMapIds.length > 1) {
-          console.log(`WARNING: API only supports querying one listing at a time. Only using first ID: ${apiParams.listingId}`);
-        }
       } else if (!Array.isArray(params.listingMapIds)) {
         // Not an array, use as is
         apiParams.listingId = params.listingMapIds;
@@ -158,8 +155,6 @@ export const fetchReservations = async (params = {}) => {
     }
     
     delete apiParams.dateType;
-    
-    console.log(`Making API request with params:`, JSON.stringify(apiParams));
     
     const queryParams = Object.entries(apiParams)
       .filter(([_, value]) => value !== null && value !== undefined)
@@ -193,14 +188,11 @@ export const fetchReservations = async (params = {}) => {
       meta.total = reservations.length;
     }
     
-    console.log(`Fetched ${reservations.length} reservations from API call`);
-    
     return { 
       reservations, 
       meta 
     };
   } catch (error) {
-    console.error('Error fetching reservations:', error);
     return { 
       reservations: [], 
       meta: { 
@@ -240,10 +232,7 @@ export const getFinancialReport = async (params = {}) => {
       requestBody.reservationIds = params.reservationIds;
     }
     
-    console.log(`Fetching financial report with limit: ${requestBody.limit}, ReservationIDs: ${requestBody.reservationIds ? requestBody.reservationIds.length : 'none'}`);
-    
     const response = await makeServerRequest('/finance/report/consolidated', 'POST', requestBody);
-    console.log(`Financial report returned ${response?.result?.rows?.length || 0} rows`);
     
     return response;
   } catch (error) {
@@ -266,7 +255,6 @@ export const getReservationsWithFinancialData = async (params = {}) => {
     const requestKey = JSON.stringify(params);
     
     if (pendingRequests[requestKey]) {
-      console.log('Request already in progress, returning pending request');
       return pendingRequests[requestKey];
     }
     
@@ -276,8 +264,6 @@ export const getReservationsWithFinancialData = async (params = {}) => {
         ...params,
         limit: 10000  // Always use a high limit
       };
-      
-      console.log(`Getting reservations with financial data, limit: ${enhancedParams.limit}`);
       
       let allReservations = [];
       let meta = { 
@@ -289,15 +275,11 @@ export const getReservationsWithFinancialData = async (params = {}) => {
       
       try {
         // Get all reservations in a single API call instead of multiple calls
-        console.log(`Fetching all reservations with params:`, JSON.stringify(enhancedParams));
         const reservationsData = await fetchReservations(enhancedParams);
         allReservations = reservationsData.reservations || [];
         meta = reservationsData.meta || meta;
         
-        console.log(`Reservations returned: ${allReservations.length}`);
-        
         if (allReservations.length === 0) {
-          console.log('No reservations found, returning empty result');
           return { reservations: [], meta };
         }
         
@@ -309,12 +291,9 @@ export const getReservationsWithFinancialData = async (params = {}) => {
         const listingMapIds = enhancedParams.listingMapIds;
         
         if (listingMapIds && Array.isArray(listingMapIds) && listingMapIds.length > 0) {
-          console.log(`Processing ${listingMapIds.length} listings one by one for financial data`);
-          
           // Process each listing separately
           for (let i = 0; i < listingMapIds.length; i++) {
             const listingId = listingMapIds[i];
-            console.log(`Processing financial data for listing ${i+1}/${listingMapIds.length}: ID ${listingId}`);
             
             // Filter reservations for this listing
             const listingReservations = allReservations.filter(res => 
@@ -324,11 +303,8 @@ export const getReservationsWithFinancialData = async (params = {}) => {
             );
             
             if (listingReservations.length === 0) {
-              console.log(`No reservations found for listing ${listingId}, skipping`);
               continue;
             }
-            
-            console.log(`Found ${listingReservations.length} reservations for listing ${listingId}`);
             
             // Get all reservation IDs for this listing
             const listingReservationIds = listingReservations
@@ -336,7 +312,6 @@ export const getReservationsWithFinancialData = async (params = {}) => {
               .filter(id => id);
               
             if (listingReservationIds.length === 0) {
-              console.log(`No valid reservation IDs for listing ${listingId}, skipping`);
               continue;
             }
             
@@ -348,11 +323,8 @@ export const getReservationsWithFinancialData = async (params = {}) => {
               limit: 10000 
             };
             
-            console.log(`Fetching financial data for listing ${listingId} with ${listingReservationIds.length} reservations`);
-            
             const financialData = await getFinancialReport(listingFinancialParams);
             const rowsCount = financialData?.result?.rows?.length || 0;
-            console.log(`Financial data received for listing ${listingId}: ${rowsCount} rows`);
             totalRowsProcessed += rowsCount;
             
             // Process financial data for this listing
@@ -381,8 +353,6 @@ export const getReservationsWithFinancialData = async (params = {}) => {
             }
           }
         } else {
-          console.log("No listing IDs provided, using reservation IDs only");
-          
           // Get all reservation IDs
           const allReservationIds = allReservations
             .map(res => res.id || res.reservationId)
@@ -395,10 +365,7 @@ export const getReservationsWithFinancialData = async (params = {}) => {
             limit: 10000 
           };
           
-          console.log(`Fetching financial data for ${allReservationIds.length} reservations`);
-          
           const financialData = await getFinancialReport(financialParams);
-          console.log(`Financial data received for ${financialData?.result?.rows?.length || 0} rows`);
           totalRowsProcessed += (financialData?.result?.rows?.length || 0);
           
           // Process financial data
@@ -426,9 +393,6 @@ export const getReservationsWithFinancialData = async (params = {}) => {
             });
           }
         }
-        
-        console.log(`Total financial rows processed across all listings: ${totalRowsProcessed}`);
-        console.log(`Financial map contains data for ${Object.keys(allFinancialMap).length} reservations`);
         
         // Map financial data to all reservations
         const processedReservations = allReservations.map(reservation => {
@@ -461,10 +425,6 @@ export const getReservationsWithFinancialData = async (params = {}) => {
           };
         });
         
-        // Count how many reservations actually have financial data
-        const withFinancialData = processedReservations.filter(res => res.financialData !== null).length;
-        console.log(`Total reservations: ${processedReservations.length}, with financial data: ${withFinancialData}`);
-        
         return {
           reservations: processedReservations,
           meta: {
@@ -480,7 +440,6 @@ export const getReservationsWithFinancialData = async (params = {}) => {
     pendingRequests[requestKey] = promise;
     return promise;
   } catch (error) {
-    console.error('Error in getReservationsWithFinancialData:', error);
     return { 
       reservations: [], 
       meta: { 
@@ -531,24 +490,16 @@ export const getListingFinancials = async (params = {}) => {
         : [params.listingMapIds];
     }
     
-    // Log whether we're getting future revenue or total
     const isFutureRevenue = !!params.fromDate;
-    console.log(`${isFutureRevenue ? 'FUTURE REVENUE' : 'TOTAL REVENUE'} API call with fromDate: ${params.fromDate || 'none'}`);
     
     if (params.fromDate) requestBody.fromDate = params.fromDate;
     if (params.toDate) requestBody.toDate = params.toDate;
     if (params.dateType) requestBody.dateType = params.dateType;
     
-    console.log(`Fetching listing financials with params:`, JSON.stringify(requestBody));
-    
     const response = await makeServerRequest('/finance/report/listingFinancials', 'POST', requestBody);
-    
-    console.log(`Listing financials raw response received, processing...`);
     
     // Check if we have rows and columns to process
     if (response?.result?.rows && response.result.columns) {
-      console.log(`Found ${response.result.rows.length} rows and ${response.result.columns.length} columns to process`);
-      
       // Process columns and rows similar to getReservationsWithFinancialData
       const columns = response.result.columns;
       let totalOwnerPayout = 0;
@@ -574,8 +525,6 @@ export const getListingFinancials = async (params = {}) => {
         processedRows.push(processedRow);
       });
       
-      console.log(`${isFutureRevenue ? 'FUTURE' : 'TOTAL'} calculated ownerPayout: ${totalOwnerPayout} from ${processedRows.length} rows`);
-      
       // Return processed data with clear distinction between total and future revenue
       return { 
         result: {
@@ -588,13 +537,10 @@ export const getListingFinancials = async (params = {}) => {
         } 
       };
     } else {
-      console.log(`No rows/columns format detected in response, returning raw result`);
-      
       // If not in columns/rows format, return as is
       return response;
     }
   } catch (error) {
-    console.error('Error fetching listing financials:', error);
     return { 
       result: {
         ownerPayout: 0,
@@ -621,7 +567,6 @@ export const getMonthlyRevenueData = async (listingIds, months = 6) => {
   try {
     const results = [];
     const today = new Date();
-    console.log(`Today's date: ${today.toISOString()}`);
     
     // Get revenue for each of the past N months
     for (let i = 0; i < months; i++) {
@@ -643,8 +588,6 @@ export const getMonthlyRevenueData = async (listingIds, months = 6) => {
       // Get month name for label - ensure we use same format as current month in HomeScreen
       const monthName = startDate.toLocaleString('default', { month: 'short' });
       
-      console.log(`Fetching revenue for month ${i + 1}/${months}: ${monthName} (${fromDateStr} to ${toDateStr})`);
-      
       // Call API to get revenue for this month
       const monthRevenue = await getListingFinancials({
         listingMapIds: listingIds,
@@ -664,8 +607,6 @@ export const getMonthlyRevenueData = async (listingIds, months = 6) => {
         date: startDate,
         isCurrentMonth: i === 0
       });
-      
-      console.log(`Month ${monthName}: $${revenue} ${i === 0 ? '(current month)' : ''}`);
     }
     
     // Format data for chart
@@ -676,13 +617,6 @@ export const getMonthlyRevenueData = async (listingIds, months = 6) => {
     // Find current month for future revenue calculation
     const currentMonthIndex = results.findIndex(item => item.isCurrentMonth);
     
-    console.log('Monthly revenue data prepared:', {
-      labels,
-      data,
-      total,
-      currentMonth: results[currentMonthIndex]?.month || 'unknown'
-    });
-    
     return {
       labels,
       data,
@@ -690,7 +624,6 @@ export const getMonthlyRevenueData = async (listingIds, months = 6) => {
       currentMonthIndex: currentMonthIndex
     };
   } catch (error) {
-    console.error('Error fetching monthly revenue data:', error);
     return {
       labels: [],
       data: [],
@@ -707,7 +640,6 @@ export const getFutureRevenueData = async (listingIds, months = 6) => {
   try {
     const results = [];
     const today = new Date();
-    console.log(`Getting future revenue starting from: ${today.toISOString()}`);
     
     // Get revenue for each of the next N months
     for (let i = 0; i < months; i++) {
@@ -729,8 +661,6 @@ export const getFutureRevenueData = async (listingIds, months = 6) => {
       // Get month name for label
       const monthName = startDate.toLocaleString('default', { month: 'short' });
       
-      console.log(`Fetching FUTURE revenue for month ${i + 1}/${months}: ${monthName} (${fromDateStr} to ${toDateStr})`);
-      
       // Call API to get revenue for this month
       const monthRevenue = await getListingFinancials({
         listingMapIds: listingIds,
@@ -750,20 +680,12 @@ export const getFutureRevenueData = async (listingIds, months = 6) => {
         date: startDate,
         isCurrentMonth: i === 0
       });
-      
-      console.log(`Future Month ${monthName}: $${revenue} ${i === 0 ? '(current month)' : ''}`);
     }
     
     // Format data for chart
     const labels = results.map(item => item.month);
     const data = results.map(item => item.revenue);
     const total = data.reduce((sum, val) => sum + val, 0);
-    
-    console.log('Future revenue data prepared:', {
-      labels,
-      data,
-      total
-    });
     
     return {
       labels,
@@ -772,7 +694,6 @@ export const getFutureRevenueData = async (listingIds, months = 6) => {
       currentMonthIndex: 0 // Current month is always first
     };
   } catch (error) {
-    console.error('Error fetching future revenue data:', error);
     return {
       labels: [],
       data: [],
