@@ -4,13 +4,13 @@ import { Platform } from 'react-native';
 
 // Server URL configuration - using the same port as the owner-portal server
 const SERVER_BASE_URL = Platform.select({
-  ios: 'http://localhost:3001', // For iOS simulator
-  android: 'http://10.0.2.2:3001', // For Android emulator
-  default: 'https://securestay.ai', // Production fallback
+  ios: 'https://luxurylodgingpm.co/owner-portal-api', // For iOS simulator
+  android: 'https://luxurylodgingpm.co/owner-portal-api', // For Android emulator
+  default: 'https://luxurylodgingpm.co/owner-portal-api', // Production fallback
 });
 
 // Authentication server URL
-const API_SERVER_URL = 'https://securestay.ai/securestay_api';
+const API_SERVER_URL = 'https://luxurylodgingpm.co/owner-portal-api';
 let accessToken = null;
 
 /**
@@ -47,6 +47,8 @@ const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
       options.signal = controller.signal;
       
       const response = await fetch(url, options);
+
+      console.log('Response:', response, url);
       
       // Clear the timeout since the request completed
       clearTimeout(timeoutId);
@@ -92,6 +94,7 @@ const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
 export const authenticateUser = async (email, password, setErrorMessage) => {
   try {
     // Auth endpoint is /api/auth/login from auth.js router
+    console.log('Authenticating user:',`${SERVER_BASE_URL}/api/auth/login`);
     const response = await fetch(`${SERVER_BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: {
@@ -99,6 +102,8 @@ export const authenticateUser = async (email, password, setErrorMessage) => {
       },
       body: JSON.stringify({ email, password }),
     });
+
+    console.log('Response:', response);
     
     if (response.ok) {
       const data = await response.json();
@@ -109,7 +114,7 @@ export const authenticateUser = async (email, password, setErrorMessage) => {
         accessToken: data.token,
       };
     } else {
-      setErrorMessage('Authentication failed');
+      setErrorMessage('Authentication failed', response);
       throw new Error('Authentication failed');
     }
   } catch (error) {
@@ -125,6 +130,7 @@ export const authenticateUser = async (email, password, setErrorMessage) => {
 export const fetchListings = async (userId) => {
   try {
     // From api.js file, the endpoint is /listings with userId query param
+    console.log('Fetching listings for user:', userId);
     const data = await makeServerRequest(`/listings?userId=${userId}`);
     return data;
   } catch (error) {
@@ -291,143 +297,173 @@ export const getFinancialReport = async (params = {}) => {
  * @param {Object} params - Parameters for both endpoints
  * @returns {Promise<Object>} Combined reservation and financial data
  */
+const pendingRequests = {};
+
 export const getReservationsWithFinancialData = async (params = {}) => {
   try {
-    let allReservations = [];
-    let meta = { 
-      total: 0, 
-      limit: params.limit || 10, 
-      offset: params.offset || 0, 
-      hasMore: false 
-    };
+    // Generate a request key based on the parameters
+    const requestKey = JSON.stringify(params);
     
-    // Handle multiple listings: For each listing, make a separate request
-    if (params.listingMapIds && Array.isArray(params.listingMapIds) && params.listingMapIds.length > 1) {
-      console.log(`Fetching reservations for ${params.listingMapIds.length} listings individually`);
-      
-      // For each listing, make a separate request
-      for (const listingId of params.listingMapIds) {
-        const listingParams = { ...params, listingMapIds: listingId };
-        const singleListingResult = await fetchReservations(listingParams);
-        
-        if (singleListingResult.reservations && singleListingResult.reservations.length > 0) {
-          allReservations = [...allReservations, ...singleListingResult.reservations];
-        }
-      }
-      
-      console.log(`Total reservations from all listings: ${allReservations.length}`);
-      
-      // Update meta information
-      meta.total = allReservations.length;
-    } else {
-      // If we're dealing with a single listing or no listing specified, just use fetchReservations directly
-      const reservationsData = await fetchReservations(params);
-      allReservations = reservationsData.reservations || [];
-      meta = reservationsData.meta || meta;
+    // Check if there's already a pending request with the same parameters
+    if (pendingRequests[requestKey]) {
+      console.log('Duplicate request detected, returning cached promise');
+      return pendingRequests[requestKey];
     }
     
-    // If we have no reservations, just return the empty result
-    if (allReservations.length === 0) {
-      console.log('No basic reservations found, returning empty result');
-      return { reservations: [], meta };
-    }
-    
-    // Step 2: Get financial report with the same parameters
-    const financialData = await getFinancialReport(params);
-    
-    console.log('Processing financial data for', allReservations.length, 'reservations');
-    
-    // Step 3: Process the financial data into a more usable format
-    const financialMap = {};
-    
-    if (financialData?.result?.rows && financialData.result.columns) {
-      const columns = financialData.result.columns;
+    // Create a new promise for this request
+    const promise = (async () => {
+      let allReservations = [];
+      let meta = { 
+        total: 0, 
+        limit: params.limit || 10, 
+        offset: params.offset || 0, 
+        hasMore: false 
+      };
       
-      // Process each row of financial data
-      financialData.result.rows.forEach(row => {
-        const processedRow = {};
-        
-        // Map column values to their names
-        columns.forEach((column, index) => {
-          if (column.name) {
-            processedRow[column.name] = row[index];
+      try {
+        // Handle multiple listings more efficiently - use a batch approach
+        if (params.listingMapIds && Array.isArray(params.listingMapIds) && params.listingMapIds.length > 0) {
+          console.log(`Fetching reservations for ${params.listingMapIds.length} listings`);
+          
+          // For larger numbers of listings, use a single request with comma-separated IDs
+          // This will be more efficient than making individual requests
+          if (params.listingMapIds.length <= 5) {
+            // For a small number of listings, fetch individually for better reliability
+            for (const listingId of params.listingMapIds) {
+              const listingParams = { ...params, listingMapIds: listingId };
+              const singleListingResult = await fetchReservations(listingParams);
+              
+              if (singleListingResult.reservations && singleListingResult.reservations.length > 0) {
+                allReservations = [...allReservations, ...singleListingResult.reservations];
+              }
+            }
+          } else {
+            // Use a single batch request for efficiency with many listings
+            const batchParams = { ...params };
+            // API might support comma-separated IDs
+            // If this doesn't work, revert to individual requests
+            const reservationsData = await fetchReservations(batchParams);
+            allReservations = reservationsData.reservations || [];
+            meta = reservationsData.meta || meta;
           }
+          
+          console.log(`Total reservations from all listings: ${allReservations.length}`);
+          
+          // Update meta information
+          meta.total = allReservations.length;
+        } else {
+          // If we're dealing with a single listing or no listing specified, just use fetchReservations directly
+          const reservationsData = await fetchReservations(params);
+          allReservations = reservationsData.reservations || [];
+          meta = reservationsData.meta || meta;
+        }
+        
+        // If we have no reservations, just return the empty result
+        if (allReservations.length === 0) {
+          console.log('No basic reservations found, returning empty result');
+          return { reservations: [], meta };
+        }
+        
+        // Step 2: Get financial report with the same parameters
+        const financialData = await getFinancialReport(params);
+        
+        console.log('Processing financial data for', allReservations.length, 'reservations');
+        
+        // Step 3: Process the financial data into a more usable format
+        const financialMap = {};
+        
+        if (financialData?.result?.rows && financialData.result.columns) {
+          const columns = financialData.result.columns;
+          
+          // Process each row of financial data
+          financialData.result.rows.forEach(row => {
+            const processedRow = {};
+            
+            // Map column values to their names
+            columns.forEach((column, index) => {
+              if (column.name) {
+                processedRow[column.name] = row[index];
+              }
+            });
+            
+            // IMPORTANT: Use the internal numeric ID for matching, NOT the string reservationId
+            // This is critical because reservations are matched by their numeric ID
+            const numericId = processedRow.id;
+            
+            if (numericId) {
+              // Store in our financial map using the NUMERIC ID as key
+              financialMap[String(numericId)] = processedRow;
+            }
+            
+            // Also store using the string reservationId as a fallback
+            if (processedRow.reservationId) {
+              financialMap[processedRow.reservationId] = processedRow;
+            }
+          });
+        }
+        
+        console.log('Financial map created with', Object.keys(financialMap).length, 'entries');
+        
+        // Step 4: Merge the financial data with the reservation data
+        const enhancedReservations = allReservations.map(reservation => {
+          // Get the reservation ID - could be in different fields
+          const reservationId = reservation.id || reservation.reservationId;
+          
+          if (!reservationId) {
+            return {
+              ...reservation,
+              ownerPayout: 0,
+              financialData: null
+            };
+          }
+          
+          // Find the matching financial data using numeric ID
+          const financialInfo = financialMap[String(reservationId)];
+          
+          // Merge the data if found
+          if (financialInfo) {
+            return {
+              ...reservation,
+              // Add the entire financial data object
+              financialData: financialInfo,
+              // Also add critical fields directly to the reservation for easier access
+              ownerPayout: parseFloat(financialInfo.ownerPayout || financialInfo.ownerAmount || 0),
+              baseRate: parseFloat(financialInfo.baseRate || reservation.baseRate || 0),
+              cleaningFee: parseFloat(financialInfo.cleaningFee || financialInfo.cleaningFeeValue || reservation.cleaningFee || 0)
+            };
+          }
+          
+          // Return the original reservation with default values if no financial data found
+          return {
+            ...reservation,
+            ownerPayout: 0, // Default to 0 if no financial data
+            financialData: null
+          };
         });
         
-        // IMPORTANT: Use the internal numeric ID for matching, NOT the string reservationId
-        // This is critical because reservations are matched by their numeric ID
-        const numericId = processedRow.id;
+        // Count how many reservations have financial data
+        const withFinancialData = enhancedReservations.filter(res => res.financialData !== null).length;
+        console.log(`Enhanced ${enhancedReservations.length} reservations, ${withFinancialData} with financial data`);
         
-        if (numericId) {
-          // Store in our financial map using the NUMERIC ID as key
-          financialMap[String(numericId)] = processedRow;
-        }
-        
-        // Also store using the string reservationId as a fallback
-        if (processedRow.reservationId) {
-          financialMap[processedRow.reservationId] = processedRow;
-        }
-      });
-    }
-    
-    console.log('Financial map created with', Object.keys(financialMap).length, 'entries');
-    console.log('Financial map keys sample:', Object.keys(financialMap).slice(0, 3));
-    
-    // Step 4: Merge the financial data with the reservation data
-    const enhancedReservations = allReservations.map(reservation => {
-      // Get the reservation ID - could be in different fields
-      const reservationId = reservation.id || reservation.reservationId;
-      
-      if (!reservationId) {
-        console.log('Reservation has no ID, skipping financial data');
+        // Return in the expected format
         return {
-          ...reservation,
-          ownerPayout: 0,
-          financialData: null
+          reservations: enhancedReservations,
+          meta: {
+            ...meta,
+            total: enhancedReservations.length
+          }
         };
+      } finally {
+        // Remove this request from the pending requests
+        delete pendingRequests[requestKey];
       }
-      
-      // Find the matching financial data using numeric ID
-      const financialInfo = financialMap[String(reservationId)];
-      
-      // Only log for the first few reservations to avoid console spam
-      if (parseInt(reservationId) % 10 === 0) {
-        console.log(`Matching reservation ${reservationId}: Found financial data: ${financialInfo ? 'YES' : 'NO'}`);
-      }
-      
-      // Merge the data if found
-      if (financialInfo) {
-        return {
-          ...reservation,
-          // Add the entire financial data object
-          financialData: financialInfo,
-          // Also add critical fields directly to the reservation for easier access
-          ownerPayout: parseFloat(financialInfo.ownerPayout || financialInfo.ownerAmount || 0),
-          baseRate: parseFloat(financialInfo.baseRate || reservation.baseRate || 0),
-          cleaningFee: parseFloat(financialInfo.cleaningFee || financialInfo.cleaningFeeValue || reservation.cleaningFee || 0)
-        };
-      }
-      
-      // Return the original reservation with default values if no financial data found
-      return {
-        ...reservation,
-        ownerPayout: 0, // Default to 0 if no financial data
-        financialData: null
-      };
-    });
+    })();
     
-    // Count how many reservations have financial data
-    const withFinancialData = enhancedReservations.filter(res => res.financialData !== null).length;
-    console.log(`Enhanced ${enhancedReservations.length} reservations, ${withFinancialData} with financial data`);
+    // Store the promise so we can reuse it for duplicate requests
+    pendingRequests[requestKey] = promise;
     
-    // Return in the expected format
-    return {
-      reservations: enhancedReservations,
-      meta: {
-        ...meta,
-        total: enhancedReservations.length
-      }
-    };
+    // Return the promise
+    return promise;
   } catch (error) {
     console.error('Error fetching reservations with financial data:', error);
     return { 

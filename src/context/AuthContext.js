@@ -25,6 +25,8 @@ export function AuthProvider({ children }) {
   const loadedListingsRef = useRef(false);
   const loadedReservationsRef = useRef(false);
   const isLoadingRef = useRef(false);
+  const lastReservationFetchTime = useRef(0);
+  const reservationFetchInProgress = useRef(false);
 
   // Clear error message after 5 seconds
   useEffect(() => {
@@ -82,7 +84,9 @@ export function AuthProvider({ children }) {
     // Load listings when user data is available
     const fetchData = async () => {
       if (!userData?.userId) return;
+      if (loadedListingsRef.current) return;
       
+      loadedListingsRef.current = true;
       setIsLoading(true);
       try {
         console.log('Loading listings for user:', userData);
@@ -102,6 +106,7 @@ export function AuthProvider({ children }) {
       } catch (error) {
         console.error('Error loading listings:', error);
         setErrorMessage('Failed to load properties');
+        loadedListingsRef.current = false;
       } finally {
         setIsLoading(false);
       }
@@ -114,7 +119,21 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     // Only load reservations when listings are available
     const fetchReservationsData = async () => {
+      // Guards to prevent infinite loops and duplicate requests
       if (!listings || listings.length === 0) return;
+      if (loadedReservationsRef.current) return;
+      if (reservationFetchInProgress.current) return;
+      
+      // Throttle API requests - no more than once every 10 seconds
+      const now = Date.now();
+      if (now - lastReservationFetchTime.current < 10000) {
+        console.log('Skipping reservation fetch - throttled');
+        return;
+      }
+      
+      lastReservationFetchTime.current = now;
+      reservationFetchInProgress.current = true;
+      loadedReservationsRef.current = true;
       
       setIsLoading(true);
       try {
@@ -155,8 +174,10 @@ export function AuthProvider({ children }) {
         console.error('Error loading reservations:', error);
         setErrorMessage('Failed to load reservations');
         setReservations([]);
+        loadedReservationsRef.current = false;
       } finally {
         setIsLoading(false);
+        reservationFetchInProgress.current = false;
       }
     };
     
@@ -170,9 +191,20 @@ export function AuthProvider({ children }) {
       return false;
     }
     
+    // Prevent multiple concurrent refreshes
+    if (isLoadingRef.current) {
+      console.log('Refresh already in progress, skipping');
+      return false;
+    }
+    
+    isLoadingRef.current = true;
     setIsLoading(true);
     try {
       console.log('Refreshing data...',);
+      
+      // Reset loaded flags to force a refetch
+      loadedListingsRef.current = false;
+      loadedReservationsRef.current = false;
       
       // Load listings
       const listingsData = await fetchListings(userData.haUserId);
@@ -196,6 +228,7 @@ export function AuthProvider({ children }) {
       return false;
     } finally {
       setIsLoading(false);
+      isLoadingRef.current = false;
     }
   };
 
@@ -224,9 +257,19 @@ export function AuthProvider({ children }) {
     setIsLoading(true);
     try {
       await removeToken();
+      // Reset state
       setUserData(null);
       setListings(null);
       setReservations(null);
+      
+      // Reset all reference flags so data will be fetched after next login
+      loadedListingsRef.current = false;
+      loadedReservationsRef.current = false;
+      isLoadingRef.current = false;
+      lastReservationFetchTime.current = 0;
+      reservationFetchInProgress.current = false;
+      authInitialized.current = false;
+      
       return true;
     } catch (error) {
       console.error('Error during sign out:', error);

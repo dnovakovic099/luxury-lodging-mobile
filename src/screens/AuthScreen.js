@@ -17,7 +17,7 @@ import { useAuth } from '../context/AuthContext';
 const AuthScreen = () => {
   const { signIn, signInWithGoogle, getToken, checkToken, removeToken, errorMessage, isLoading: authLoading } = useAuth();
   const [email, setEmail] = useState('pamthroener@gmail.com');
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState('Pennoyer23!');
   const [isLoading, setIsLoading] = useState(false);
   const tokenCheckPerformed = useRef(false);
 
