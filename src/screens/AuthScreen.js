@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useState, useRef} from 'react';
 import {
   View,
   Text,
@@ -15,16 +15,11 @@ import { theme } from '../theme';
 import { useAuth } from '../context/AuthContext';
 
 const AuthScreen = () => {
-  const { signIn, signInWithGoogle , getToken, checkToken,removeToken, errorMessage} = useAuth();
+  const { signIn, signInWithGoogle, getToken, checkToken, removeToken, errorMessage, isLoading: authLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-
-
-  useEffect( () => {
-  checkToken();
-  }, []);
+  const tokenCheckPerformed = useRef(false);
 
   const handleAuth = async () => {
     if (!email || !password) {
@@ -35,13 +30,11 @@ const AuthScreen = () => {
     setIsLoading(true);
 
     try {
-      // await signIn({ userId: 64614 });
-      console.log('EMAIL, email:', email, password);
+      console.log('Signing in with:', email);
       await signIn({ email, password });
     } catch (error) {
-      Alert.alert('Error', error.message);
+      Alert.alert('Error', error.message || 'Sign in failed');
     } finally {
-      console.log('finaly', email, password);
       setIsLoading(false);
     }
   };

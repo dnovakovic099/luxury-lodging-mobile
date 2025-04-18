@@ -5,7 +5,9 @@ import {
   RefreshControl,
   ScrollView,
   ActivityIndicator,
-  SafeAreaView
+  SafeAreaView,
+  TouchableOpacity,
+  Text
 } from 'react-native';
 import RevenueSummary from '../components/RevenueSummary';
 import RevenueChart from '../components/RevenueChart';
@@ -13,9 +15,10 @@ import ListingActions from '../components/ListingActions';
 import { theme } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { processRevenueData, getChartLabels } from '../utils/revenueUtils';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
 const HomeScreen = () => {
-  const { reservations, refreshData, isLoading, removeToken } = useAuth();
+  const { reservations, refreshData, isLoading, signOut } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [revenue, setRevenue] = useState(0);
   const [chartData, setChartData] = useState(null);
@@ -139,8 +142,24 @@ const HomeScreen = () => {
     );
   };
 
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
+      <View style={styles.headerContainer}>
+        <Text style={styles.headerTitle}>Dashboard</Text>
+        <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+          <Ionicons name="log-out-outline" size={24} color={theme.colors.primary} />
+          <Text style={styles.signOutText}>Sign Out</Text>
+        </TouchableOpacity>
+      </View>
+      
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.contentContainer}
@@ -170,6 +189,30 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#000000',
+  },
+  headerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#000000',
+    borderBottomColor: '#333',
+    borderBottomWidth: 1,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  signOutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+  },
+  signOutText: {
+    color: theme.colors.primary,
+    marginLeft: 5,
+    fontSize: 14,
   },
   container: {
     flex: 1,

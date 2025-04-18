@@ -72,6 +72,11 @@ export const theme = {
       fontSize: 12,
       letterSpacing: 0.3,
     },
+    button: {
+      fontSize: 16,
+      fontWeight: '600',
+      letterSpacing: 0.3,
+    }
   },
   shadows: {
     small: {

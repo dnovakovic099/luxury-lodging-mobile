@@ -1,11 +1,69 @@
-import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import React, { useState, useEffect } from 'react';
+import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import {View, StyleSheet, StatusBar, SafeAreaView, ActivityIndicator, Image} from 'react-native';
+import {
+  View, 
+  StyleSheet, 
+  StatusBar, 
+  SafeAreaView, 
+  ActivityIndicator, 
+  Image, 
+  TouchableOpacity, 
+  Text, 
+  Platform, 
+  UIManager,
+  LogBox,
+  Animated
+} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { theme } from './src/theme';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+
+// Suppress warnings
+LogBox.ignoreLogs([
+  'Sending `onAnimatedValueUpdate`',
+  'Warning:',
+  'Cannot read property',
+  'TypeError:',
+  'NativeAnimatedModule',
+]);
+
+// Disable all animations globally to stabilize app
+if (Platform.OS === 'ios') {
+  // Override the timing and spring functions to disable animations
+  const originalTiming = Animated.timing;
+  Animated.timing = (value, config) => {
+    return {
+      start: (callback) => {
+        value.setValue(config.toValue);
+        callback && callback({finished: true});
+      },
+      stop: () => {}
+    };
+  };
+
+  const originalSpring = Animated.spring;
+  Animated.spring = (value, config) => {
+    return {
+      start: (callback) => {
+        value.setValue(config.toValue);
+        callback && callback({finished: true});
+      },
+      stop: () => {}
+    };
+  };
+
+  const originalLoop = Animated.loop;
+  Animated.loop = (animation) => {
+    return {
+      start: (callback) => {
+        callback && callback({finished: true});
+      },
+      stop: () => {}
+    };
+  };
+}
 
 // Import screens
 import AuthScreen from './src/screens/AuthScreen';
@@ -16,6 +74,8 @@ import ReservationsScreen from './src/screens/ReservationsScreen';
 import SupportScreen from './src/screens/SupportScreen';
 import EarnMoreScreen from './src/screens/EarnMoreScreen';
 import {ConsultationProvider} from './src/context/ConsultationContext';
+
+// No need for separate SignOutScreen - we'll add a button to HomeScreen instead
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -52,6 +112,8 @@ const MainTabs = () => (
         fontSize: 12,
         marginBottom: 4,
       },
+      animation: 'none',
+      animationEnabled: false,
     }}
   >
     <Tab.Screen
@@ -82,15 +144,6 @@ const MainTabs = () => (
         ),
       }}
     />
-    {/*<Tab.Screen*/}
-    {/*  name="Support"*/}
-    {/*  component={SupportScreen}*/}
-    {/*  options={{*/}
-    {/*    tabBarIcon: ({ color, size }) => (*/}
-    {/*      <Ionicons name="chatbubble-outline" size={24} color={color} />*/}
-    {/*    ),*/}
-    {/*  }}*/}
-    {/*/>*/}
     <Tab.Screen
       name="EarnMore"
       component={EarnMoreScreen}
@@ -105,7 +158,35 @@ const MainTabs = () => (
 
 const Navigation = () => {
   const { userData, isLoading } = useAuth();
+  const [isReady, setIsReady] = useState(false);
 
+  // Disable animations
+  React.useEffect(() => {
+    const disableAnimations = async () => {
+      if (Platform.OS === 'ios') {
+        UIManager.setLayoutAnimationEnabledExperimental && 
+        UIManager.setLayoutAnimationEnabledExperimental(false);
+      }
+    };
+    
+    disableAnimations();
+    
+    // Mark as ready after a short delay to ensure all initialization is complete
+    setTimeout(() => {
+      setIsReady(true);
+    }, 100);
+  }, []);
+
+  // Don't render anything until we're ready
+  if (!isReady) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  // Show loading state if auth is loading
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -122,6 +203,8 @@ const Navigation = () => {
         contentStyle: {
           backgroundColor: theme.colors.background,
         },
+        animation: 'none',
+        animationEnabled: false,
       }}
     >
       {!userData || !userData.userId ? (
@@ -144,6 +227,24 @@ const Navigation = () => {
               headerTitleStyle: theme.typography.h2,
               headerBackTitleVisible: false,
               headerTitle: "",
+              animation: 'none',
+              animationEnabled: false,
+            }}
+          />
+          <Stack.Screen
+            name="ReservationDetail"
+            component={ReservationsScreen}
+            options={{
+              headerShown: true,
+              headerStyle: {
+                backgroundColor: theme.colors.surface,
+              },
+              headerTintColor: theme.colors.text.primary,
+              headerTitleStyle: theme.typography.h2,
+              headerBackTitleVisible: false,
+              headerTitle: "Reservation Details",
+              animation: 'none',
+              animationEnabled: false,
             }}
           />
         </>
