@@ -39,20 +39,6 @@ const parseNumber = (value) => {
   return 0;
 };
 
-const formatDate = (dateString) => {
-  if (!dateString) return 'TBD';
-  return moment(dateString).format('MMM D, YYYY');
-};
-
-const calculateNights = (arrivalDate, departureDate) => {
-  if (!arrivalDate || !departureDate) return '0';
-  
-  const arrival = moment(arrivalDate);
-  const departure = moment(departureDate);
-  
-  return departure.diff(arrival, 'days');
-};
-
 // Helper to find properties nested anywhere in an object
 const findNestedProperty = (obj, key) => {
   if (!obj || typeof obj !== 'object') return undefined;
@@ -73,6 +59,20 @@ const findNestedProperty = (obj, key) => {
   }
   
   return undefined;
+};
+
+const formatDate = (dateString) => {
+  if (!dateString) return 'TBD';
+  return moment(dateString).format('MMM D, YYYY');
+};
+
+const calculateNights = (arrivalDate, departureDate) => {
+  if (!arrivalDate || !departureDate) return '0';
+  
+  const arrival = moment(arrivalDate);
+  const departure = moment(departureDate);
+  
+  return departure.diff(arrival, 'days');
 };
 
 const FinancialRow = ({ label, value, type }) => {
@@ -99,58 +99,6 @@ const FinancialRow = ({ label, value, type }) => {
     <View style={styles.financialRow}>
       <Text style={styles.finRowLabel}>{label}</Text>
       <Text style={valueStyle}>{formatCurrency(value)}</Text>
-    </View>
-  );
-};
-
-// Summary card component for dashboard overview with modern styling
-const SummaryCard = ({ label, value, icon, tint }) => {
-  return (
-    <View style={styles.summaryCard}>
-      <LinearGradient
-        colors={['rgba(40, 40, 40, 0.5)', 'rgba(25, 25, 25, 0.8)']}
-        style={styles.summaryGradient}
-      >
-        <View style={[styles.summaryIcon, { backgroundColor: `${tint}15` }]}>
-          <Icon name={icon} size={20} color={tint || '#B69D74'} />
-        </View>
-        <View style={styles.summaryContent}>
-          <Text style={styles.summaryLabel}>{label}</Text>
-          <Text style={[styles.summaryValue, { color: tint || '#B69D74' }]}>{value}</Text>
-        </View>
-      </LinearGradient>
-    </View>
-  );
-};
-
-// Export this component to be used in ReservationsScreen
-export const ReservationsSummary = ({ bookings, totalRevenue, cleaningTotal, payoutTotal }) => {
-  return (
-    <View style={styles.summaryContainer}>
-      <SummaryCard 
-        label="Bookings" 
-        value={bookings || '0'} 
-        icon="calendar" 
-        tint="#B69D74" 
-      />
-      <SummaryCard 
-        label="Base Rate" 
-        value={formatCurrency(totalRevenue || 0)} 
-        icon="cash" 
-        tint="#4CAF50" 
-      />
-      <SummaryCard 
-        label="Cleaning Fee" 
-        value={formatCurrency(cleaningTotal || 0)} 
-        icon="brush" 
-        tint="#4CAF50" 
-      />
-      <SummaryCard 
-        label="Owner Payout" 
-        value={formatCurrency(payoutTotal || 0)} 
-        icon="wallet" 
-        tint="#4CAF50" 
-      />
     </View>
   );
 };
@@ -193,7 +141,8 @@ const ReservationCard = ({ item }) => {
   
   // Calculate total
   const totalIncome = baseRate + cleaningFee + tourismTax + petFee;
-
+  
+  // Extract fees with specific field names only and no defaults
   const processingFee = parseNumber(
     financialsObj?.financialData?.PaymentProcessing
   );
@@ -390,54 +339,6 @@ const ReservationsTable = ({
 };
 
 const styles = StyleSheet.create({
-  // Summary dashboard styles
-  summaryContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-    paddingHorizontal: 8,
-  },
-  summaryCard: {
-    width: '48%',
-    marginBottom: 12,
-    borderRadius: 14,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  summaryGradient: {
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: '100%',
-  },
-  summaryIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
-  },
-  summaryContent: {
-    flex: 1,
-  },
-  summaryLabel: {
-    fontSize: 13,
-    color: '#AAAAAA',
-    marginBottom: 6,
-    fontWeight: '500',
-  },
-  summaryValue: {
-    fontSize: 22,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  
   // General container styles
   container: {
     flex: 1,

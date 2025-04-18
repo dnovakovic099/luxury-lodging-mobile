@@ -60,18 +60,21 @@ export const processRevenueData = (reservations) => {
   let allTimeTotal = 0;
 
   validReservations.forEach(reservation => {
-    const arrivalDate = new Date(reservation.arrivalDate);
-    const totalPrice = reservation.airbnbExpectedPayoutAmount || reservation.totalPrice;
-
-    // console.log({ name: `${reservation.guestFirstName} ${reservation.guestLastName}`,arrivalDate, airbnbIncome: reservation.airbnbExpectedPayoutAmount, totalPrice, channel: reservation.channelName })
+    const arrivalDate = new Date(reservation.arrivalDate || reservation.checkIn || reservation.arrival);
+    
+    // Use ownerPayout directly for accurate financial data instead of totalPrice
+    const ownerPayout = parseFloat(reservation.ownerPayout || 0);
+    
+    if (isNaN(ownerPayout) || ownerPayout <= 0) {
+      return; // Skip reservations with no valid payout
+    }
 
     // Last 7 days - group by actual days
     if (arrivalDate >= sevenDaysAgo) {
-
       const dayIndex = 6 - Math.floor((now - arrivalDate) / (1000 * 60 * 60 * 24));
       if (dayIndex >= 0 && dayIndex < 7) {
-        weekData[dayIndex] += totalPrice;
-        weekTotal += totalPrice;
+        weekData[dayIndex] += ownerPayout;
+        weekTotal += ownerPayout;
       }
     }
 
@@ -79,8 +82,8 @@ export const processRevenueData = (reservations) => {
     if (arrivalDate >= thirtyDaysAgo) {
       const weekIndex = 3 - Math.floor((now - arrivalDate) / (1000 * 60 * 60 * 24 * 7));
       if (weekIndex >= 0 && weekIndex < 4) {
-        monthData[weekIndex] += totalPrice;
-        monthTotal += totalPrice;
+        monthData[weekIndex] += ownerPayout;
+        monthTotal += ownerPayout;
       }
     }
 
@@ -91,8 +94,8 @@ export const processRevenueData = (reservations) => {
         (now.getMonth() - arrivalDate.getMonth()))
       );
       if (monthIndex >= 0 && monthIndex < 3) {
-        threeMonthData[monthIndex] += totalPrice;
-        threeMonthTotal += totalPrice;
+        threeMonthData[monthIndex] += ownerPayout;
+        threeMonthTotal += ownerPayout;
       }
     }
 
@@ -103,8 +106,8 @@ export const processRevenueData = (reservations) => {
         (now.getMonth() - arrivalDate.getMonth()))
       );
       if (monthIndex >= 0 && monthIndex < 6) {
-        sixMonthData[monthIndex] += totalPrice;
-        sixMonthTotal += totalPrice;
+        sixMonthData[monthIndex] += ownerPayout;
+        sixMonthTotal += ownerPayout;
       }
     }
 
@@ -114,8 +117,8 @@ export const processRevenueData = (reservations) => {
                        (now.getMonth() - arrivalDate.getMonth());
       const quarterIndex = 3 - Math.floor(monthDiff / 3);
       if (quarterIndex >= 0 && quarterIndex < 4) {
-        yearData[quarterIndex] += totalPrice;
-        yearTotal += totalPrice;
+        yearData[quarterIndex] += ownerPayout;
+        yearTotal += ownerPayout;
       }
     }
 
@@ -123,8 +126,8 @@ export const processRevenueData = (reservations) => {
     if (arrivalDate >= threeYearsAgo) {
       const yearIndex = 3 - (now.getFullYear() - arrivalDate.getFullYear());
       if (yearIndex >= 0 && yearIndex < 4) {
-        allTimeData[yearIndex] += totalPrice;
-        allTimeTotal += totalPrice;
+        allTimeData[yearIndex] += ownerPayout;
+        allTimeTotal += ownerPayout;
       }
     }
   });
@@ -212,9 +215,10 @@ export const calculateRevenueFromStoredReservations = (reservations, dateRange) 
     isWithinDateRange(reservation.arrivalDate, dateRange)
   );
 
-  return validReservations.reduce((sum, reservation) => 
-    sum + reservation.totalPrice, 0
-  );
+  return validReservations.reduce((sum, reservation) => {
+    const ownerPayout = parseFloat(reservation.ownerPayout || 0);
+    return sum + (ownerPayout > 0 ? ownerPayout : 0);
+  }, 0);
 };
 
 const isWithinDateRange = (date, range) => {

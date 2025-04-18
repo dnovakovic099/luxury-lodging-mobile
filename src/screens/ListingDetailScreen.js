@@ -7,14 +7,18 @@ import {
   RefreshControl,
   ActivityIndicator,
   Dimensions,
-  Platform
+  Platform,
+  StyleSheet
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { PropertyInfo, StatItem } from '../components/DetailComponent';
 import RevenueChart from '../components/RevenueChart';
 import { theme } from '../theme';
 import { useAuth } from '../context/AuthContext';
-import { processRevenueData, getChartLabels } from '../utils/revenueUtils';
+import { processRevenueData } from '../utils/revenueUtils';
+import { getReservationsWithFinancialData } from '../services/api';
+import { useFocusEffect } from '@react-navigation/native';
+import { formatCurrency } from '../utils/formatters';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const VALID_STATUSES = ['new', 'modified', 'ownerStay'];
@@ -23,58 +27,78 @@ if (typeof global.self === 'undefined') {
   global.self = global;
 }
 
-const ListingDetailScreen = ({ route }) => {
-  const { property } = route.params;
-  const { reservations: allReservations, refreshData } = useAuth();
+const MetricCard = ({ icon, label, value, color = theme.colors.primary, large = false }) => (
+  <View style={styles.metricCard}>
+    <View style={[styles.metricIconContainer, { backgroundColor: `${color}15` }]}>
+      <Ionicons name={icon} size={18} color={color} />
+    </View>
+    <View style={styles.metricContent}>
+      <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={[styles.metricValue, large && styles.largeMetricValue]}>{value}</Text>
+    </View>
+  </View>
+);
+
+const ListingDetailScreen = ({ route, navigation }) => {
+  const { property, totalRevenue: passedTotalRevenue } = route.params;
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState('1M');
   const [reservations, setReservations] = useState([]);
   const [chartData, setChartData] = useState(null);
-  const [revenue, setRevenue] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  const processData = async () => {
-    if (!allReservations) return;
+  // Directly use the passed totalRevenue without modification
+  const revenue = passedTotalRevenue || 0;
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerBackTitle: 'Properties'
+    });
+  }, [navigation]);
+
+  const loadPropertyData = async () => {
+    if (!property || !property.id) return;
 
     setLoading(true);
     try {
-      const propertyReservations = allReservations.filter(res => {
-        return res.listingMapId === property.id
-      });
-
-      setReservations(propertyReservations);
-
-      const validReservations = propertyReservations.filter(res => 
+      const listingIds = [property.id];
+      
+      const allReservationsParams = {
+        listingMapIds: listingIds,
+        dateType: 'arrivalDate',
+        status: 'confirmed'
+      };
+      
+      console.log('Fetching property reservations with params:', allReservationsParams);
+      const result = await getReservationsWithFinancialData(allReservationsParams);
+      
+      const validReservations = (result?.reservations || []).filter(res => 
         VALID_STATUSES.includes(res.status)
       );
       
-      const processedData = processRevenueData(validReservations);
-      setChartData(processedData);
+      setReservations(validReservations);
       
-      if (processedData && processedData['1Y']) {
-        setRevenue(processedData['1Y'].total);
-      }
+      const processedData = processRevenueData(validReservations);
+      console.log('Chart data processed:', processedData ? 
+        `Found data for periods: ${Object.keys(processedData).join(', ')}` : 
+        'No chart data processed');
+      setChartData(processedData);
     } catch (error) {
-      console.error('Error processing data:', error);
+      console.error('Error loading property data:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    processData();
-  }, [allReservations, property.id]);
+  useFocusEffect(
+    React.useCallback(() => {
+      loadPropertyData();
+    }, [property?.id])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await refreshData();
+    await loadPropertyData();
     setRefreshing(false);
-  };
-
-  const getDaysRemaining = () => {
-    const now = new Date();
-    const endOfYear = new Date(now.getFullYear(), 11, 31);
-    return Math.ceil((endOfYear - now) / (1000 * 60 * 60 * 24));
   };
 
   if (loading && !refreshing) {
@@ -99,66 +123,47 @@ const ListingDetailScreen = ({ route }) => {
       }
       showsVerticalScrollIndicator={false}
     >
-      <Image
-        source={{ uri: property.listingImages?.[0]?.url || 'https://via.placeholder.com/400' }}
-        style={styles.headerImage}
-      />
+      {/* Property Header with Image */}
+      <View style={styles.imageContainer}>
+        <Image
+          source={{ uri: property.listingImages?.[0]?.url || 'https://via.placeholder.com/400' }}
+          style={styles.headerImage}
+        />
+        <View style={styles.imageOverlay} />
+        <View style={styles.propertyNameContainer}>
+          <Text style={styles.propertyName}>{property.name}</Text>
+        </View>
+      </View>
 
       <View style={styles.content}>
-        <View style={styles.propertyHeader}>
-          <Text style={styles.propertyName}>{property.name}</Text>
-          <View style={styles.propertyLocation}>
-            {/* <Ionicons 
-              name="location-outline" 
-              size={14} 
-              color={theme.colors.text.secondary} 
-            /> */}
-            {/* <Text style={styles.propertyAddress}>
-              {property.address?.city || 'Location unavailable'}
-            </Text> */}
-          </View>
-        </View>
-
+        {/* Metrics Section */}
         <View style={styles.metricsContainer}>
-          <PropertyInfo 
+          <MetricCard 
             icon="analytics-outline"
             label="Marketing Score"
             value={`${property.marketingScore || 85}/100`}
+            color="#4CAF50"
           />
           
-          <View style={styles.statsGrid}>
-            <StatItem 
-              icon="cash-outline"
-              value={`$${Math.round(revenue / 1000)}k`}
-              label="Revenue YTD" 
-              large={true}
-              trend={12.5}
-            />
-            <StatItem 
-              icon="time-outline"
-              value={getDaysRemaining()}
-              label="Days Remaining" 
-            />
-          </View>
+          <MetricCard 
+            icon="cash-outline"
+            label="Total Revenue"
+            value={formatCurrency(revenue)}
+            large={true}
+          />
         </View>
 
+        {/* Chart Section */}
         <View style={styles.chartSection}>
-          <RevenueChart 
-            data={{ 
-              monthlyRevenue: chartData?.[selectedPeriod]?.data || [],
-              labels: getChartLabels(selectedPeriod),
-              total: chartData?.[selectedPeriod]?.total || 0,
-            }}
-            selectedPeriod={selectedPeriod}
-            onPeriodChange={setSelectedPeriod}
-          />
+          <Text style={styles.sectionTitle}>Revenue Analysis</Text>
+          <RevenueChart data={chartData} loading={loading} />
         </View>
       </View>
     </ScrollView>
   );
 };
 
-const styles = {
+const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -166,59 +171,108 @@ const styles = {
   scrollContent: {
     flexGrow: 1,
   },
+  imageContainer: {
+    position: 'relative',
+    width: '100%',
+    height: 220,
+  },
   headerImage: {
-    width: SCREEN_WIDTH,
-    height: 200,
+    width: '100%',
+    height: '100%',
     resizeMode: 'cover',
+  },
+  imageOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+  propertyNameContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    paddingBottom: 24,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  propertyName: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   content: {
     flex: 1,
-    paddingTop: theme.spacing.lg,
-  },
-  propertyHeader: {
-    paddingHorizontal: theme.spacing.lg,
-    marginBottom: theme.spacing.lg,
-  },
-  propertyName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    marginBottom: 4,
-    letterSpacing: -0.3,
-  },
-  propertyLocation: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  propertyAddress: {
-    fontSize: 14,
-    color: theme.colors.text.secondary,
+    padding: 16,
   },
   metricsContainer: {
-    paddingHorizontal: theme.spacing.lg,
-    gap: theme.spacing.lg,
-    marginBottom: theme.spacing.xl,
-  },
-  statsGrid: {
+    marginTop: 16,
+    marginBottom: 20,
     flexDirection: 'row',
-    gap: theme.spacing.md,
+    justifyContent: 'space-between',
+    gap: 12,
   },
-  chartSection: {
-    marginTop: theme.spacing.md,
+  metricCard: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: 10,
+    padding: 12,
+    paddingVertical: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
-  sectionTitle: {
+  metricIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  metricContent: {
+    flex: 1,
+  },
+  metricLabel: {
+    fontSize: 12,
+    color: theme.colors.text.secondary,
+    marginBottom: 2,
+  },
+  metricValue: {
     fontSize: 16,
     fontWeight: '600',
     color: theme.colors.text.primary,
-    marginBottom: theme.spacing.md,
-    paddingHorizontal: theme.spacing.lg,
+  },
+  largeMetricValue: {
+    fontSize: 18,
+    color: theme.colors.primary,
+  },
+  chartSection: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    marginBottom: 12,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-};
+});
 
 export default ListingDetailScreen;

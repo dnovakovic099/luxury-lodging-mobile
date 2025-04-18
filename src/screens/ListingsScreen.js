@@ -9,13 +9,14 @@ import {
   Animated,
   Dimensions,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import PropertyCard from '../components/PropertyCard';
 import PropertyCardSkeleton from '../components/PropertyCardSkeleton';
 import { theme } from '../theme';
-import { fetchListings } from '../services/api';
+import { fetchListings, getReservationsWithFinancialData } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 const StatBadge = ({ icon, value, label }) => (
@@ -51,7 +52,10 @@ const SearchBar = ({ value, onChangeText }) => (
 const ListingsScreen = () => {
   const navigation = useNavigation();
   const [searchQuery, setSearchQuery] = useState('');
-  const { listings, reservations } = useAuth();
+  const { listings, reservations: authReservations } = useAuth();
+  const [reservations, setReservations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [propertyRevenues, setPropertyRevenues] = useState({});
 
   const filteredListings = listings?.filter(listing =>
     listing.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -59,18 +63,75 @@ const ListingsScreen = () => {
 
   const VALID_STATUSES = ['new', 'modified', 'ownerStay'];
 
+  // Load financial data from the API
+  useEffect(() => {
+    if (listings && listings.length > 0) {
+      loadFinancialData();
+    } else {
+      setLoading(false);
+    }
+  }, [listings]);
+
+  const loadFinancialData = async () => {
+    if (!listings || !listings.length) {
+      console.log('No listings available, skipping financial data fetch');
+      return;
+    }
+    
+    setLoading(true);
+    
+    try {
+      // Get all listing IDs
+      const listingIds = listings.map(listing => listing.id);
+      
+      // Parameters for all reservations (no date limits)
+      const allReservationsParams = {
+        listingMapIds: listingIds,
+        dateType: 'arrivalDate',
+        status: 'confirmed'
+      };
+      
+      console.log('Fetching all-time reservations with params:', allReservationsParams);
+      const allReservationsResult = await getReservationsWithFinancialData(allReservationsParams);
+      
+      // Get valid reservations
+      const validReservations = (allReservationsResult?.reservations || []).filter(res => 
+        VALID_STATUSES.includes(res.status)
+      );
+      
+      console.log(`Received ${validReservations.length} valid reservations with financial data`);
+      setReservations(validReservations);
+      
+      // Calculate total revenue by property
+      const revenueByProperty = {};
+      
+      validReservations.forEach(reservation => {
+        const propertyId = reservation.listingMapId;
+        if (!propertyId) return;
+        
+        if (!revenueByProperty[propertyId]) {
+          revenueByProperty[propertyId] = 0;
+        }
+        
+        // Use the ownerPayout field populated by getReservationsWithFinancialData
+        const ownerPayout = parseFloat(reservation.ownerPayout || 0);
+        
+        if (!isNaN(ownerPayout) && ownerPayout > 0) {
+          revenueByProperty[propertyId] += ownerPayout;
+        }
+      });
+      
+      setPropertyRevenues(revenueByProperty);
+      
+    } catch (error) {
+      console.error('Error loading financial data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getPropertyRevenue = (propertyId) => {
-    if (!reservations) return 0;
-
-    // Filter reservations for this property that are valid and from this year
-    const propertyReservations = reservations.filter(res =>
-      res.listingMapId === propertyId && // Match property
-      VALID_STATUSES.includes(res.status) && // Valid status
-      new Date(res.arrivalDate).getFullYear() === new Date().getFullYear() // This year only
-    );
-
-    // Sum up the total price of all matching reservations
-    return propertyReservations.reduce((sum, res) => sum + res.totalPrice, 0);
+    return propertyRevenues[propertyId] || 0;
   };
 
   const renderHeader = () => (
@@ -90,7 +151,6 @@ const ListingsScreen = () => {
     </View>
   );
 
-// In the renderItem function of ListingsScreen:
   const renderItem = ({ item, index }) => (
     <Animated.View
       entering={Animated.spring({
@@ -110,22 +170,42 @@ const ListingsScreen = () => {
         onPress={() => {
           if (navigation && navigation.navigate) {
             navigation.navigate('ListingDetail', {
-              property: item
+              property: item,
+              totalRevenue: getPropertyRevenue(item.id)
             });
           } else {
             console.log('Navigation not available');
           }
         }}
-        style={styles.touchable} // Add this style
+        style={styles.touchable}
       >
         <PropertyCard
           property={item}
           revenue={getPropertyRevenue(item.id)}
-          onPress={() => navigation.navigate('ListingDetail', { property: item })}
+          onPress={() => navigation.navigate('ListingDetail', { 
+            property: item,
+            totalRevenue: getPropertyRevenue(item.id)
+          })}
         />
       </TouchableOpacity>
     </Animated.View>
   );
+
+  const onRefresh = React.useCallback(() => {
+    loadFinancialData();
+  }, []);
+
+  if (loading && (!listings || listings.length === 0)) {
+    return (
+      <View style={styles.container}>
+        <SearchBar value={searchQuery} onChangeText={setSearchQuery} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={styles.loadingText}>Loading properties...</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -142,13 +222,14 @@ const ListingsScreen = () => {
               <Text style={styles.emptyStateText}>No properties found</Text>
             </View>
           }
-          // refreshControl={
-          //   <RefreshControl
-          //     onRefresh={fetchListingsData}
-          //     tintColor={theme.colors.primary}
-          //     colors={[theme.colors.primary]}
-          //   />
-          // }
+          refreshControl={
+            <RefreshControl
+              refreshing={loading}
+              onRefresh={onRefresh}
+              tintColor={theme.colors.primary}
+              colors={[theme.colors.primary]}
+            />
+          }
           showsVerticalScrollIndicator={false}
         />
     </View>
@@ -237,6 +318,16 @@ const styles = StyleSheet.create({
     ...theme.typography.body,
     color: theme.colors.text.secondary,
     marginTop: theme.spacing.md,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 10,
+    color: theme.colors.text.secondary,
   },
 });
 

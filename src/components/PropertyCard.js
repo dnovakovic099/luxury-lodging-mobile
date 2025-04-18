@@ -81,7 +81,7 @@ const PropertyCard = ({ property, revenue, onPress }) => {
           <Text style={styles.revenueValue}>
             {moneyFormatter(revenue)}
           </Text>
-          <Text style={styles.revenueLabel}>2024 Revenue</Text>
+          <Text style={styles.revenueLabel}>Total Revenue</Text>
         </View>
       </View>
     </AnimatedPressable>

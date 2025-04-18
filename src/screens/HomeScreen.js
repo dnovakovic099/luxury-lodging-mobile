@@ -12,17 +12,21 @@ import {
 import RevenueSummary from '../components/RevenueSummary';
 import RevenueChart from '../components/RevenueChart';
 import ListingActions from '../components/ListingActions';
+import PropertyUpgrades from '../components/PropertyUpgrades';
 import { theme } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { processRevenueData, getChartLabels } from '../utils/revenueUtils';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { getReservationsWithFinancialData } from '../services/api';
 
-const HomeScreen = () => {
-  const { reservations, refreshData, isLoading, signOut } = useAuth();
+const HomeScreen = ({ navigation }) => {
+  const { reservations: authReservations, listings, refreshData, isLoading: authLoading, signOut } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
-  const [revenue, setRevenue] = useState(0);
+  const [totalRevenue, setTotalRevenue] = useState(0);
+  const [futureRevenue, setFutureRevenue] = useState(0);
   const [chartData, setChartData] = useState(null);
-  const [selectedPeriod, setSelectedPeriod] = useState('1M');
+  const [loading, setLoading] = useState(true);
+  const [reservations, setReservations] = useState([]);
   const VALID_STATUSES = ['new', 'modified', 'ownerStay'];
 
   // Mock data for listing actions
@@ -44,102 +48,197 @@ const HomeScreen = () => {
     }
   ];
 
-  const processData = () => {
-    if (!reservations) return;
-
-    const currentYear = new Date().getFullYear();
-    const validReservations = reservations.filter(res =>
-      VALID_STATUSES.includes(res.status) &&
-      new Date(res.arrivalDate).getFullYear() === currentYear
-    );
-
-    const resos = validReservations.map(r => ({
-      arrival: r.arrivalDate,
-      price: r.airbnbExpectedPayoutAmount || r.totalPrice
-    })).sort((a, b) => new Date(a.arrival) - new Date(b.arrival));
-
-    const groupByMonth = (data) => {
-      const totals = data.reduce((acc, item) => {
-        const date = new Date(item.arrival);
-        const month = date.toLocaleString("default", { month: "long" });
-        const year = date.getFullYear();
-        const monthYear = `${month} ${year}`;
-
-        if (!acc[monthYear]) {
-          acc[monthYear] = 0;
+  // Load reservations with financial data directly from API
+  const loadFinancialData = async () => {
+    if (!listings || !listings.length) {
+      console.log('No listings available, skipping financial data fetch');
+      return;
+    }
+    
+    setLoading(true);
+    
+    try {
+      // Get all listing IDs
+      const listingIds = listings.map(listing => listing.id);
+      
+      // Format current date for API
+      const formatDateForApi = (date) => {
+        if (!date) return null;
+        const correctedDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+        return correctedDate.toISOString().split('T')[0];
+      };
+      
+      // Get today's date for future revenue calculation
+      const today = new Date();
+      const todayStr = formatDateForApi(today);
+      
+      // Parameters for all reservations (no date limits)
+      const allReservationsParams = {
+        listingMapIds: listingIds,
+        dateType: 'arrivalDate',
+        status: 'confirmed'
+      };
+      
+      console.log('Fetching all-time reservations with params:', allReservationsParams);
+      const allReservationsResult = await getReservationsWithFinancialData(allReservationsParams);
+      
+      // Get valid reservations
+      const validReservations = (allReservationsResult?.reservations || []).filter(res => 
+        VALID_STATUSES.includes(res.status)
+      );
+      
+      console.log(`Received ${validReservations.length} valid reservations with financial data`);
+      
+      // Log a few sample reservations for debugging
+      if (validReservations.length > 0) {
+        const samples = validReservations.slice(0, 3);
+        samples.forEach((sample, index) => {
+          console.log(`Sample ${index + 1}:`, {
+            id: sample.id,
+            status: sample.status,
+            ownerPayout: sample.ownerPayout,
+            arrival: sample.arrivalDate || sample.checkIn,
+            hasFinancialData: !!sample.financialData
+          });
+        });
+      }
+      
+      setReservations(validReservations);
+      
+      // Calculate total revenue from all valid reservations
+      let totalRevenue = 0;
+      let reservationsWithPayout = 0;
+      
+      validReservations.forEach(reservation => {
+        // Use the ownerPayout field populated by getReservationsWithFinancialData
+        const ownerPayout = parseFloat(reservation.ownerPayout || 0);
+        
+        if (!isNaN(ownerPayout) && ownerPayout > 0) {
+          totalRevenue += ownerPayout;
+          reservationsWithPayout++;
         }
-        acc[monthYear] += item.price;
-        return acc;
-      }, {});
-
-      return Object.entries(totals).map(([monthYear, total]) => ({
-        monthYear,
-        total
-      }));
-    };
-
-    const groupedPrices = groupByMonth(resos);
-
-    const ytdRevenue = validReservations.reduce((sum, res) =>
-      sum + (res.airbnbExpectedPayoutAmount || res.totalPrice), 0);
-    setRevenue(ytdRevenue);
-
-    const processedData = processRevenueData(reservations);
-    setChartData(processedData);
-  };
-
-  useEffect(() => {
-    processData();
-  }, [reservations]);
-
-  // useEffect(() => {
-  //  removeToken()
-  // }, []);
-
-
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await refreshData();
-    setRefreshing(false);
-  };
-
-  const summaryData = {
-    grossRevenue: revenue,
-    revenueChange: 12.5,
-    averageRating: 4.8,
-    totalExpenses: 45000,
-    expensesChange: -5.2,
-    revenueSharing: {
-      amount: 12500,
-      change: 8.3
+      });
+      
+      console.log(`Found ${reservationsWithPayout} reservations with valid payouts, total: ${totalRevenue}`);
+      setTotalRevenue(totalRevenue);
+      
+      // Calculate future revenue - reservations with check-in date today or later
+      let totalFutureRevenue = 0;
+      let futureReservationCount = 0;
+      
+      validReservations.forEach(reservation => {
+        try {
+          // Get check-in date
+          const checkInDateStr = reservation?.checkIn || reservation?.arrivalDate || reservation?.arrival;
+          if (!checkInDateStr) return;
+          
+          const checkInDate = new Date(checkInDateStr);
+          if (isNaN(checkInDate.getTime())) return;
+          
+          // Current date at midnight
+          const currentDate = new Date();
+          currentDate.setHours(0, 0, 0, 0);
+          
+          if (checkInDate >= currentDate) {
+            const ownerPayout = parseFloat(reservation.ownerPayout || 0);
+            
+            if (!isNaN(ownerPayout) && ownerPayout > 0) {
+              totalFutureRevenue += ownerPayout;
+              futureReservationCount++;
+            }
+          }
+        } catch (error) {
+          console.error("Error processing date for future revenue:", error);
+        }
+      });
+      
+      console.log(`Found ${futureReservationCount} future reservations, total future revenue: ${totalFutureRevenue}`);
+      setFutureRevenue(totalFutureRevenue);
+      
+      // Process chart data with accurate owner payout values
+      const processedData = processRevenueData(validReservations);
+      
+      console.log('Chart data processed:', {
+        periods: Object.keys(processedData || {}),
+        hasData: processedData && processedData['6M'],
+        monthlyRevenueLength: processedData && processedData['6M'] && processedData['6M'].data.length,
+        total: processedData && processedData['6M'] && processedData['6M'].total
+      });
+      
+      setChartData(processedData);
+      
+    } catch (error) {
+      console.error('Error loading financial data:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Load data when listings change
+  useEffect(() => {
+    if (listings && listings.length > 0) {
+      loadFinancialData();
+    }
+  }, [listings]);
+
+  // Initialize with reservations from auth context
+  useEffect(() => {
+    if (authReservations && authReservations.length > 0 && reservations.length === 0) {
+      const validAuthReservations = authReservations.filter(res => 
+        VALID_STATUSES.includes(res.status)
+      );
+      
+      setReservations(validAuthReservations);
+      
+      // Process initial chart data if needed
+      if (!chartData && validAuthReservations.length > 0) {
+        const initialChartData = processRevenueData(validAuthReservations);
+        setChartData(initialChartData);
+      }
+    }
+  }, [authReservations]);
+
+  // Refresh data when screen is focused
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadDashboardData();
+    });
+    return unsubscribe;
+  }, [navigation]);
+  
+  // Initial data load
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
+  
+  const loadDashboardData = async () => {
+    setLoading(true);
+    try {
+      // Directly call loadFinancialData which already does all the data fetching
+      await loadFinancialData();
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    loadDashboardData().then(() => setRefreshing(false));
+  }, []);
+  
   const renderChart = () => {
-    if (isLoading) {
+    if (loading) {
       return (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={styles.loadingText}>Loading revenue data...</Text>
         </View>
       );
     }
-
-    if (!chartData || !chartData[selectedPeriod]) {
-      return null;
-    }
-
-    return (
-      <RevenueChart
-        data={{
-          monthlyRevenue: chartData[selectedPeriod].data,
-          labels: getChartLabels(selectedPeriod),
-          total: chartData[selectedPeriod].total,
-        }}
-        selectedPeriod={selectedPeriod}
-        onPeriodChange={setSelectedPeriod}
-      />
-    );
+    
+    return <RevenueChart data={chartData} loading={loading} />;
   };
 
   const handleSignOut = async () => {
@@ -151,46 +250,56 @@ const HomeScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.headerContainer}>
-        <Text style={styles.headerTitle}>Dashboard</Text>
-        <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
-          <Ionicons name="log-out-outline" size={24} color={theme.colors.primary} />
-          <Text style={styles.signOutText}>Sign Out</Text>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Luxury Lodging Host</Text>
+        <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
+          <Ionicons name="log-out-outline" size={24} color={theme.colors.text.secondary} />
         </TouchableOpacity>
       </View>
       
+      <RevenueSummary 
+        data={{
+          totalRevenue: totalRevenue,
+          futureRevenue: futureRevenue,
+          sharingRevenue: 0
+        }}
+        loading={loading}
+        style={styles.revenueSummary}
+      />
+
       <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.contentContainer}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor="#FFD700"
+            colors={[theme.colors.primary]}
+            tintColor={theme.colors.primary}
           />
         }
       >
-        <ListingActions actions={mockActions} />
+        {/* Debug revenue values being passed to RevenueSummary */}
+        {console.log('Revenue Summary Data:', { 
+          totalRevenue, 
+          futureRevenue, 
+          sharingRevenue: 0 
+        })}
 
-        <View style={styles.summaryContainer}>
-          <RevenueSummary data={summaryData} loading={isLoading} />
-        </View>
-
-        <View style={styles.chartSection}>
-          {renderChart()}
-        </View>
+        <PropertyUpgrades />
+        
+        {renderChart()}
       </ScrollView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: {
+  container: {
     flex: 1,
     backgroundColor: '#000000',
   },
-  headerContainer: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -200,39 +309,37 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#B6944C',
+    letterSpacing: 0.5,
+  },
+  revenueSummary: {
+    marginTop: 0,
+    marginBottom: 16,
   },
   signOutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
     padding: 8,
   },
-  signOutText: {
-    color: theme.colors.primary,
-    marginLeft: 5,
-    fontSize: 14,
-  },
-  container: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-  contentContainer: {
+  scrollContent: {
     flexGrow: 1,
-  },
-  summaryContainer: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-  },
-  chartSection: {
-    marginTop: 24,
+    paddingTop: 0,
+    paddingBottom: 24,
   },
   loadingContainer: {
     height: 300,
     justifyContent: 'center',
     alignItems: 'center',
-  }
+    backgroundColor: 'rgba(25, 25, 25, 0.7)',
+    borderRadius: 16,
+    marginVertical: 8,
+  },
+  loadingText: {
+    color: theme.colors.text.secondary,
+    marginTop: 16,
+    fontSize: 14,
+  },
 });
 
 export default HomeScreen;
+

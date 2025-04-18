@@ -11,50 +11,31 @@ import {
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Camera, Paintbrush, Package, Users, Star, Sparkles, TrendingUp, DollarSign, Zap } from 'lucide-react-native';
 import { theme } from '../theme';
-import {fetchListings, requestRevenueCalculation} from '../services/api';
+import { requestRevenueCalculation } from '../services/api';
 
 import PropertyPicker from '../components/PropertyPicker';
 import RevenueCard from '../components/RevenueCard';
 import GradeIndicator from '../components/GradeIndicator';
 import ReferralSection from '../components/ReferralSection';
-import {useAuth} from '../context/AuthContext';
-import {useConsultation} from '../context/ConsultationContext';
+import { useAuth } from '../context/AuthContext';
+import { useConsultation } from '../context/ConsultationContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const EarnMoreScreen = () => {
-  const {  message, sendMessage, setMessage, isLoading, complete,} = useConsultation();
+  const { message, sendMessage, setMessage, isLoading, complete } = useConsultation();
+  const { listings } = useAuth();
   const [selectedProperty, setSelectedProperty] = useState('');
-  const [properties, setProperties] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-
-
-  const fetchPropertyData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetchListings();
-      if (response?.result?.length > 0) {
-        setProperties(response.result);
-        if (!selectedProperty) {
-          setSelectedProperty(response.result[0].id);
-        }
-      } else {
-        setError('No properties found');
-      }
-    } catch (err) {
-      console.error('Error fetching properties:', err);
-      setError('Failed to load properties');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Use the listings from AuthContext instead of fetching again
   useEffect(() => {
-    fetchPropertyData();
-  }, []);
+    if (listings && listings.length > 0 && !selectedProperty) {
+      // Set the first property as the default selected one
+      setSelectedProperty(listings[0].id);
+    }
+  }, [listings, selectedProperty]);
 
   const handlePropertyChange = (propertyId) => {
     setSelectedProperty(propertyId);
@@ -108,16 +89,14 @@ const EarnMoreScreen = () => {
     },
   ];
 
-
-
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <View style={styles.pickerWrapper}>
         <PropertyPicker
           selectedProperty={selectedProperty}
           onValueChange={handlePropertyChange}
-          properties={properties}
-          loading={loading}
+          properties={listings || []}
+          loading={!listings}
           error={error}
         />
       </View>
