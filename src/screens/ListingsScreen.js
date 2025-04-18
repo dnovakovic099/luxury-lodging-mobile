@@ -16,7 +16,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import PropertyCard from '../components/PropertyCard';
 import PropertyCardSkeleton from '../components/PropertyCardSkeleton';
 import { theme } from '../theme';
-import { fetchListings, getReservationsWithFinancialData } from '../services/api';
+import { fetchListings, getListingFinancials } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 const StatBadge = ({ icon, value, label }) => (
@@ -52,8 +52,7 @@ const SearchBar = ({ value, onChangeText }) => (
 const ListingsScreen = () => {
   const navigation = useNavigation();
   const [searchQuery, setSearchQuery] = useState('');
-  const { listings, reservations: authReservations } = useAuth();
-  const [reservations, setReservations] = useState([]);
+  const { listings } = useAuth();
   const [loading, setLoading] = useState(true);
   const [propertyRevenues, setPropertyRevenues] = useState({});
 
@@ -81,46 +80,33 @@ const ListingsScreen = () => {
     setLoading(true);
     
     try {
-      // Get all listing IDs
-      const listingIds = listings.map(listing => listing.id);
-      
-      // Parameters for all reservations (no date limits)
-      const allReservationsParams = {
-        listingMapIds: listingIds,
-        dateType: 'arrivalDate',
-        status: 'confirmed'
-      };
-      
-      console.log('Fetching all-time reservations with params:', allReservationsParams);
-      const allReservationsResult = await getReservationsWithFinancialData(allReservationsParams);
-      
-      // Get valid reservations
-      const validReservations = (allReservationsResult?.reservations || []).filter(res => 
-        VALID_STATUSES.includes(res.status)
-      );
-      
-      console.log(`Received ${validReservations.length} valid reservations with financial data`);
-      setReservations(validReservations);
-      
-      // Calculate total revenue by property
+      // Create a new property revenues object
       const revenueByProperty = {};
       
-      validReservations.forEach(reservation => {
-        const propertyId = reservation.listingMapId;
-        if (!propertyId) return;
+      // Process each listing individually for more accurate tracking
+      for (const listing of listings) {
+        const listingId = listing.id;
+        if (!listingId) continue;
         
-        if (!revenueByProperty[propertyId]) {
-          revenueByProperty[propertyId] = 0;
-        }
+        // Get all-time revenue for this specific listing using getListingFinancials
+        const listingParams = {
+          listingMapIds: [listingId],
+          dateType: 'arrivalDate',
+          statuses: ['confirmed', 'new', 'modified', 'ownerStay']
+        };
         
-        // Use the ownerPayout field populated by getReservationsWithFinancialData
-        const ownerPayout = parseFloat(reservation.ownerPayout || 0);
+        console.log(`Fetching financial data for listing ${listingId}`);
+        const listingFinancialData = await getListingFinancials(listingParams);
         
-        if (!isNaN(ownerPayout) && ownerPayout > 0) {
-          revenueByProperty[propertyId] += ownerPayout;
-        }
-      });
+        // Extract the revenue from the API response
+        const listingRevenue = listingFinancialData?.result?.ownerPayout || 0;
+        console.log(`Listing ${listingId} revenue: ${listingRevenue}`);
+        
+        // Store in our property revenues map
+        revenueByProperty[listingId] = listingRevenue;
+      }
       
+      console.log('Financial data fetched for all properties:', Object.keys(revenueByProperty).length);
       setPropertyRevenues(revenueByProperty);
       
     } catch (error) {

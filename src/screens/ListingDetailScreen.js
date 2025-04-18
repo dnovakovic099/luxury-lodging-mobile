@@ -15,8 +15,7 @@ import { PropertyInfo, StatItem } from '../components/DetailComponent';
 import RevenueChart from '../components/RevenueChart';
 import { theme } from '../theme';
 import { useAuth } from '../context/AuthContext';
-import { processRevenueData } from '../utils/revenueUtils';
-import { getReservationsWithFinancialData } from '../services/api';
+import { getListingFinancials, getMonthlyRevenueData } from '../services/api';
 import { useFocusEffect } from '@react-navigation/native';
 import { formatCurrency } from '../utils/formatters';
 
@@ -42,12 +41,9 @@ const MetricCard = ({ icon, label, value, color = theme.colors.primary, large = 
 const ListingDetailScreen = ({ route, navigation }) => {
   const { property, totalRevenue: passedTotalRevenue } = route.params;
   const [refreshing, setRefreshing] = useState(false);
-  const [reservations, setReservations] = useState([]);
   const [chartData, setChartData] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  // Directly use the passed totalRevenue without modification
-  const revenue = passedTotalRevenue || 0;
+  const [propertyRevenue, setPropertyRevenue] = useState(passedTotalRevenue || 0);
 
   useEffect(() => {
     navigation.setOptions({
@@ -60,28 +56,55 @@ const ListingDetailScreen = ({ route, navigation }) => {
 
     setLoading(true);
     try {
-      const listingIds = [property.id];
+      const listingId = property.id;
       
-      const allReservationsParams = {
-        listingMapIds: listingIds,
+      // 1. Get total revenue for this property using getListingFinancials
+      const totalRevenueParams = {
+        listingMapIds: [listingId],
         dateType: 'arrivalDate',
-        status: 'confirmed'
+        statuses: ['confirmed', 'new', 'modified', 'ownerStay']
       };
       
-      console.log('Fetching property reservations with params:', allReservationsParams);
-      const result = await getReservationsWithFinancialData(allReservationsParams);
+      console.log(`Fetching total revenue for property ${listingId}`);
+      const totalRevenueData = await getListingFinancials(totalRevenueParams);
+      const totalRevenue = totalRevenueData?.result?.ownerPayout || 0;
       
-      const validReservations = (result?.reservations || []).filter(res => 
-        VALID_STATUSES.includes(res.status)
-      );
+      // Only update if we didn't get a value from the listings screen or if it's different
+      if (!passedTotalRevenue || passedTotalRevenue !== totalRevenue) {
+        setPropertyRevenue(totalRevenue);
+      }
       
-      setReservations(validReservations);
+      // 2. Get monthly revenue data for chart
+      console.log(`Fetching monthly revenue data for property ${listingId}`);
+      const monthlyData = await getMonthlyRevenueData([listingId], 6); // Get 6 months of data
       
-      const processedData = processRevenueData(validReservations);
-      console.log('Chart data processed:', processedData ? 
-        `Found data for periods: ${Object.keys(processedData).join(', ')}` : 
-        'No chart data processed');
-      setChartData(processedData);
+      // Format the data for the chart component
+      // The RevenueChart component expects data in a specific format with labels array and data array
+      const formattedChartData = {
+        '6M': {
+          labels: monthlyData.labels,
+          data: monthlyData.data,
+          total: monthlyData.total
+        },
+        'ALL': {
+          labels: monthlyData.labels,
+          data: monthlyData.data,
+          total: monthlyData.total
+        },
+        // Add other periods with empty data to avoid errors
+        '1W': { data: [], total: 0 },
+        '1M': { data: [], total: 0 },
+        '3M': { data: [], total: 0 },
+        '1Y': { data: [], total: 0 }
+      };
+      
+      setChartData(formattedChartData);
+      console.log('Chart data updated with direct API data:', {
+        labels: monthlyData.labels,
+        values: monthlyData.data,
+        total: monthlyData.total
+      });
+      
     } catch (error) {
       console.error('Error loading property data:', error);
     } finally {
@@ -148,7 +171,7 @@ const ListingDetailScreen = ({ route, navigation }) => {
           <MetricCard 
             icon="cash-outline"
             label="Total Revenue"
-            value={formatCurrency(revenue)}
+            value={formatCurrency(propertyRevenue)}
             large={true}
           />
         </View>

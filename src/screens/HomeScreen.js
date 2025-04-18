@@ -11,24 +11,21 @@ import {
 } from 'react-native';
 import RevenueSummary from '../components/RevenueSummary';
 import RevenueChart from '../components/RevenueChart';
-import ListingActions from '../components/ListingActions';
 import PropertyUpgrades from '../components/PropertyUpgrades';
 import { theme } from '../theme';
 import { useAuth } from '../context/AuthContext';
-import { processRevenueData, getChartLabels } from '../utils/revenueUtils';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { getReservationsWithFinancialData } from '../services/api';
+import { getListingFinancials, getMonthlyRevenueData } from '../services/api';
 
 const HomeScreen = ({ navigation }) => {
-  const { reservations: authReservations, listings, refreshData, isLoading: authLoading, signOut } = useAuth();
+  const { listings, refreshData, isLoading: authLoading, signOut } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [futureRevenue, setFutureRevenue] = useState(0);
+  const [sharingRevenue, setSharingRevenue] = useState(0);
   const [chartData, setChartData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [reservations, setReservations] = useState([]);
-  const VALID_STATUSES = ['new', 'modified', 'ownerStay'];
-
+  
   // Mock data for listing actions
   const mockActions = [
     {
@@ -48,7 +45,7 @@ const HomeScreen = ({ navigation }) => {
     }
   ];
 
-  // Load reservations with financial data directly from API
+  // Load financial data directly from API
   const loadFinancialData = async () => {
     if (!listings || !listings.length) {
       console.log('No listings available, skipping financial data fetch');
@@ -56,10 +53,12 @@ const HomeScreen = ({ navigation }) => {
     }
     
     setLoading(true);
+    console.log('Current Revenue Summary Data:', {futureRevenue, sharingRevenue, totalRevenue});
     
     try {
-      // Get all listing IDs
-      const listingIds = listings.map(listing => listing.id);
+      // Get all listing IDs and ensure they are numbers
+      const listingIds = listings.map(listing => Number(listing.id)).filter(id => !isNaN(id));
+      console.log(`Using ${listingIds.length} listings for financial data:`, listingIds);
       
       // Format current date for API
       const formatDateForApi = (date) => {
@@ -68,104 +67,76 @@ const HomeScreen = ({ navigation }) => {
         return correctedDate.toISOString().split('T')[0];
       };
       
-      // Get today's date for future revenue calculation
+      // Get today's date
       const today = new Date();
       const todayStr = formatDateForApi(today);
       
-      // Parameters for all reservations (no date limits)
-      const allReservationsParams = {
+      // Create a date 2 years in the future for future revenue
+      const twoYearsFromNow = new Date(today);
+      twoYearsFromNow.setFullYear(twoYearsFromNow.getFullYear() + 2);
+      const futureStr = formatDateForApi(twoYearsFromNow);
+      
+      // 1. First, get total historical revenue (all time)
+      const totalRevenueParams = {
         listingMapIds: listingIds,
         dateType: 'arrivalDate',
-        status: 'confirmed'
+        statuses: ['confirmed', 'new', 'modified', 'ownerStay']
       };
       
-      console.log('Fetching all-time reservations with params:', allReservationsParams);
-      const allReservationsResult = await getReservationsWithFinancialData(allReservationsParams);
+      console.log('Fetching total revenue with params:', JSON.stringify(totalRevenueParams));
+      const totalRevenueData = await getListingFinancials(totalRevenueParams);
+      console.log('TOTAL REVENUE - ownerPayout:', totalRevenueData?.result?.ownerPayout);
       
-      // Get valid reservations
-      const validReservations = (allReservationsResult?.reservations || []).filter(res => 
-        VALID_STATUSES.includes(res.status)
-      );
+      // 2. Get future revenue with an explicit long date range (from today to 2 years in future)
+      const futureRevenueParams = {
+        listingMapIds: listingIds,
+        fromDate: todayStr,
+        toDate: futureStr,
+        dateType: 'arrivalDate',
+        statuses: ['confirmed', 'new', 'modified', 'ownerStay']
+      };
       
-      console.log(`Received ${validReservations.length} valid reservations with financial data`);
+      console.log('Fetching future revenue with explicit date range:', JSON.stringify(futureRevenueParams));
+      const futureRevenueData = await getListingFinancials(futureRevenueParams);
+      console.log('FUTURE REVENUE (from API) - ownerPayout:', futureRevenueData?.result?.ownerPayout);
       
-      // Log a few sample reservations for debugging
-      if (validReservations.length > 0) {
-        const samples = validReservations.slice(0, 3);
-        samples.forEach((sample, index) => {
-          console.log(`Sample ${index + 1}:`, {
-            id: sample.id,
-            status: sample.status,
-            ownerPayout: sample.ownerPayout,
-            arrival: sample.arrivalDate || sample.checkIn,
-            hasFinancialData: !!sample.financialData
-          });
-        });
-      }
+      // Set total revenue from API
+      const extractedTotalRevenue = totalRevenueData?.result?.ownerPayout || 0;
+      // Use the explicit future revenue from API instead of calculating from monthly data
+      const explicitFutureRevenue = futureRevenueData?.result?.ownerPayout || 0;
       
-      setReservations(validReservations);
+      setTotalRevenue(extractedTotalRevenue);
+      setFutureRevenue(explicitFutureRevenue);
       
-      // Calculate total revenue from all valid reservations
-      let totalRevenue = 0;
-      let reservationsWithPayout = 0;
+      // 3. Get monthly revenue data for chart directly from API
+      console.log('Fetching monthly revenue data for chart...');
+      const monthlyData = await getMonthlyRevenueData(listingIds, 6); // Get 6 months of data
       
-      validReservations.forEach(reservation => {
-        // Use the ownerPayout field populated by getReservationsWithFinancialData
-        const ownerPayout = parseFloat(reservation.ownerPayout || 0);
-        
-        if (!isNaN(ownerPayout) && ownerPayout > 0) {
-          totalRevenue += ownerPayout;
-          reservationsWithPayout++;
+      // Format the data for the chart component
+      const formattedChartData = {
+        '6M': {
+          labels: monthlyData.labels,
+          data: monthlyData.data,
+          total: monthlyData.total
+        },
+        // You can add other time periods if needed
+        'ALL': {
+          labels: monthlyData.labels,
+          data: monthlyData.data,
+          total: monthlyData.total
         }
+      };
+      
+      setChartData(formattedChartData);
+      
+      console.log('Updated Revenue Summary Data:', {
+        totalRevenue: extractedTotalRevenue,
+        futureRevenue: explicitFutureRevenue,
+        sharingRevenue, 
+        chartTotal: monthlyData.total,
+        monthlyDataLabels: monthlyData.labels.join(', '),
+        monthlyDataValues: monthlyData.data.join(', ')
       });
-      
-      console.log(`Found ${reservationsWithPayout} reservations with valid payouts, total: ${totalRevenue}`);
-      setTotalRevenue(totalRevenue);
-      
-      // Calculate future revenue - reservations with check-in date today or later
-      let totalFutureRevenue = 0;
-      let futureReservationCount = 0;
-      
-      validReservations.forEach(reservation => {
-        try {
-          // Get check-in date
-          const checkInDateStr = reservation?.checkIn || reservation?.arrivalDate || reservation?.arrival;
-          if (!checkInDateStr) return;
-          
-          const checkInDate = new Date(checkInDateStr);
-          if (isNaN(checkInDate.getTime())) return;
-          
-          // Current date at midnight
-          const currentDate = new Date();
-          currentDate.setHours(0, 0, 0, 0);
-          
-          if (checkInDate >= currentDate) {
-            const ownerPayout = parseFloat(reservation.ownerPayout || 0);
-            
-            if (!isNaN(ownerPayout) && ownerPayout > 0) {
-              totalFutureRevenue += ownerPayout;
-              futureReservationCount++;
-            }
-          }
-        } catch (error) {
-          console.error("Error processing date for future revenue:", error);
-        }
-      });
-      
-      console.log(`Found ${futureReservationCount} future reservations, total future revenue: ${totalFutureRevenue}`);
-      setFutureRevenue(totalFutureRevenue);
-      
-      // Process chart data with accurate owner payout values
-      const processedData = processRevenueData(validReservations);
-      
-      console.log('Chart data processed:', {
-        periods: Object.keys(processedData || {}),
-        hasData: processedData && processedData['6M'],
-        monthlyRevenueLength: processedData && processedData['6M'] && processedData['6M'].data.length,
-        total: processedData && processedData['6M'] && processedData['6M'].total
-      });
-      
-      setChartData(processedData);
       
     } catch (error) {
       console.error('Error loading financial data:', error);
@@ -180,23 +151,6 @@ const HomeScreen = ({ navigation }) => {
       loadFinancialData();
     }
   }, [listings]);
-
-  // Initialize with reservations from auth context
-  useEffect(() => {
-    if (authReservations && authReservations.length > 0 && reservations.length === 0) {
-      const validAuthReservations = authReservations.filter(res => 
-        VALID_STATUSES.includes(res.status)
-      );
-      
-      setReservations(validAuthReservations);
-      
-      // Process initial chart data if needed
-      if (!chartData && validAuthReservations.length > 0) {
-        const initialChartData = processRevenueData(validAuthReservations);
-        setChartData(initialChartData);
-      }
-    }
-  }, [authReservations]);
 
   // Refresh data when screen is focused
   useEffect(() => {
@@ -262,7 +216,7 @@ const HomeScreen = ({ navigation }) => {
         data={{
           totalRevenue: totalRevenue,
           futureRevenue: futureRevenue,
-          sharingRevenue: 0
+          sharingRevenue: sharingRevenue
         }}
         loading={loading}
         style={styles.revenueSummary}
@@ -283,7 +237,7 @@ const HomeScreen = ({ navigation }) => {
         {console.log('Revenue Summary Data:', { 
           totalRevenue, 
           futureRevenue, 
-          sharingRevenue: 0 
+          sharingRevenue 
         })}
 
         <PropertyUpgrades />

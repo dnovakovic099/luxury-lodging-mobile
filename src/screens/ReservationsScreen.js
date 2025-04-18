@@ -101,23 +101,6 @@ const ReservationsScreen = ({ navigation }) => {
     setIsLoading(true);
     
     try {
-      // Prepare filter parameters
-      let listingMapIds = [];
-      
-      // Filter by selected listing
-      if (selectedListing !== 'All Properties' && listings) {
-        const selectedListingId = listings.find(
-          listing => (listing.name || `Property ${listing.id}`) === selectedListing
-        )?.id;
-        
-        if (selectedListingId) {
-          listingMapIds = [selectedListingId];
-        }
-      } else {
-        // If "All Properties" is selected, include all listing IDs
-        listingMapIds = listings.map(listing => listing.id);
-      }
-      
       // Format dates for API
       const formatDateForApi = (date) => {
         if (!date) return null;
@@ -128,52 +111,106 @@ const ReservationsScreen = ({ navigation }) => {
         return correctedDate.toISOString().split('T')[0];
       };
       
-      // Prepare API parameters
-      const params = {
-        listingMapIds: listingMapIds,
+      // Prepare array of relevant listing IDs
+      let relevantListingIds = [];
+      
+      // Filter by selected listing
+      if (selectedListing !== 'All Properties' && listings) {
+        // Find the selected listing by name
+        const selectedListingObj = listings.find(
+          listing => (listing.name || `Property ${listing.id}`) === selectedListing
+        );
+        
+        if (selectedListingObj && selectedListingObj.id) {
+          // Use the numeric ID
+          const selectedListingId = Number(selectedListingObj.id);
+          relevantListingIds = [selectedListingId];
+          console.log(`Selected specific listing ID: ${selectedListingId}`);
+        } else {
+          console.log(`Could not find listing with name: ${selectedListing}`);
+          // Fallback to all listings if we can't find the selected one
+          relevantListingIds = listings.map(listing => Number(listing.id)).filter(id => !isNaN(id));
+        }
+      } else {
+        // If "All Properties" is selected, include all listing IDs
+        // Ensure they are numbers and filter out any NaN values
+        relevantListingIds = listings.map(listing => Number(listing.id)).filter(id => !isNaN(id));
+        console.log(`Using all listing IDs: [${relevantListingIds.join(', ')}]`);
+      }
+      
+      // Common parameters for all API calls
+      const baseParams = {
         fromDate: formatDateForApi(startDate),
         toDate: formatDateForApi(endDate),
         dateType: 'arrivalDate',
-        status: 'confirmed'
+        statuses: ['confirmed', 'new', 'modified', 'ownerStay']
       };
       
-      console.log('Fetching reservations with filters:', params);
+      let allReservations = [];
       
-      // Call the API with filters
-      const result = await getReservationsWithFinancialData(params);
-      
-      if (result?.reservations && Array.isArray(result.reservations)) {
-        // Further filter by valid statuses if needed (can also be done on server)
-        const validReservations = result.reservations.filter(res => 
-          VALID_STATUSES.includes(res.status)
-        );
+      if (relevantListingIds.length === 1) {
+        // If there's just one listing, make a single call
+        const params = {
+          ...baseParams,
+          listingMapIds: [relevantListingIds[0]]
+        };
         
-        // Sort reservations by arrival date (most recent first)
-        const sortedReservations = validReservations.sort((a, b) => {
-          const dateA = new Date(a.arrivalDate || a.checkInDate);
-          const dateB = new Date(b.arrivalDate || b.checkInDate);
-          return dateB - dateA;
-        });
+        console.log('Fetching reservations for single listing with params:', JSON.stringify(params));
+        const result = await getReservationsWithFinancialData(params);
         
-        // Log the first reservation and its ownerPayout for debugging
-        if (sortedReservations.length > 0) {
-          const first = sortedReservations[0];
-          console.log('First reservation data:', {
-            id: first.id,
-            ownerPayout: first.ownerPayout,
-            financialData: first.financialData ? 'present' : 'missing',
-            hasDirectOwnerPayout: typeof first.ownerPayout !== 'undefined'
-          });
-        } else {
-          console.log('No reservations found matching criteria');
+        if (result?.reservations && Array.isArray(result.reservations)) {
+          allReservations = result.reservations;
+        }
+      } else {
+        // For multiple listings, we need to make separate API calls for each listing
+        console.log(`Need to fetch reservations for ${relevantListingIds.length} listings individually`);
+        
+        // Fetch reservations for each listing separately
+        for (const listingId of relevantListingIds) {
+          const params = {
+            ...baseParams,
+            listingMapIds: [listingId]
+          };
+          
+          console.log(`Fetching reservations for listing ${listingId}...`);
+          const result = await getReservationsWithFinancialData(params);
+          
+          if (result?.reservations && Array.isArray(result.reservations)) {
+            allReservations = [...allReservations, ...result.reservations];
+          }
         }
         
-        setFilteredReservations(sortedReservations);
-        console.log(`Loaded ${sortedReservations.length} filtered reservations`);
-      } else {
-        console.warn('Unexpected reservation data format:', result);
-        setFilteredReservations([]);
+        console.log(`Combined a total of ${allReservations.length} reservations from all listings`);
       }
+      
+      // Further filter by valid statuses if needed
+      const validReservations = allReservations.filter(res => 
+        VALID_STATUSES.includes(res.status)
+      );
+      
+      // Sort reservations by arrival date (most recent first)
+      const sortedReservations = validReservations.sort((a, b) => {
+        const dateA = new Date(a.arrivalDate || a.checkInDate);
+        const dateB = new Date(b.arrivalDate || b.checkInDate);
+        return dateB - dateA;
+      });
+      
+      // Log the first reservation and its ownerPayout for debugging
+      if (sortedReservations.length > 0) {
+        const first = sortedReservations[0];
+        console.log('First reservation data:', {
+          id: first.id,
+          property: first.listingId || first.listingMapId,
+          arrivalDate: first.arrivalDate || first.checkInDate,
+          ownerPayout: first.ownerPayout,
+          financialData: first.financialData ? 'present' : 'missing',
+        });
+      } else {
+        console.log('No reservations found matching criteria');
+      }
+      
+      setFilteredReservations(sortedReservations);
+      console.log(`Loaded ${sortedReservations.length} filtered reservations (from ${allReservations.length} total)`);
     } catch (error) {
       console.error('Error loading reservations:', error);
       setFilteredReservations([]);

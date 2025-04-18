@@ -1,16 +1,13 @@
 // services/api.js
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-// Server URL configuration - using the same port as the owner-portal server
+// Server URL configuration
 const SERVER_BASE_URL = Platform.select({
-  ios: 'https://luxurylodgingpm.co/owner-portal-api', // For iOS simulator
-  android: 'https://luxurylodgingpm.co/owner-portal-api', // For Android emulator
-  default: 'https://luxurylodgingpm.co/owner-portal-api', // Production fallback
+  ios: 'https://luxurylodgingpm.co/owner-portal-api',
+  android: 'https://luxurylodgingpm.co/owner-portal-api',
+  default: 'https://luxurylodgingpm.co/owner-portal-api',
 });
 
-// Authentication server URL
-const API_SERVER_URL = 'https://luxurylodgingpm.co/owner-portal-api';
 let accessToken = null;
 
 /**
@@ -34,37 +31,26 @@ const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
       options.body = JSON.stringify(body);
     }
 
-    // The server.js file shows that API routes are prefixed with /api
     const url = `${SERVER_BASE_URL}/api${endpoint}`;
-    console.log(`Making ${method} request to: ${url}`);
     
     // Create an AbortController to handle timeouts
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
     
     try {
-      // Add the signal to our fetch options
       options.signal = controller.signal;
-      
       const response = await fetch(url, options);
-
-      console.log('Response:', response, url);
-      
-      // Clear the timeout since the request completed
       clearTimeout(timeoutId);
       
-      // Check for non-JSON responses - could indicate HTML error page
       const contentType = response.headers.get('content-type');
       const isJson = contentType && contentType.includes('application/json');
       
       if (!isJson) {
-        const text = await response.text();
-        console.error('Non-JSON response received:', text.substring(0, 200) + '...');
+        await response.text();
         throw new Error(`Server returned non-JSON response: ${response.status}`);
       }
       
       if (response.status === 401) {
-        console.log('Authentication expired');
         throw new Error('Your session has expired. Please login again.');
       }
 
@@ -77,13 +63,11 @@ const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
     } catch (err) {
       clearTimeout(timeoutId);
       if (err.name === 'AbortError') {
-        console.error(`Request timeout for ${endpoint} after 30 seconds`);
         throw new Error('Request timed out. Please try again later.');
       }
       throw err;
     }
   } catch (error) {
-    console.error(`API request error for ${endpoint}:`, error);
     throw error;
   }
 };
@@ -93,8 +77,6 @@ const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
  */
 export const authenticateUser = async (email, password, setErrorMessage) => {
   try {
-    // Auth endpoint is /api/auth/login from auth.js router
-    console.log('Authenticating user:',`${SERVER_BASE_URL}/api/auth/login`);
     const response = await fetch(`${SERVER_BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: {
@@ -102,24 +84,20 @@ export const authenticateUser = async (email, password, setErrorMessage) => {
       },
       body: JSON.stringify({ email, password }),
     });
-
-    console.log('Response:', response);
     
     if (response.ok) {
       const data = await response.json();
-      console.log('Authentication successful:', data);
       accessToken = data.token;
       return {
         email: email,
         accessToken: data.token,
       };
     } else {
-      setErrorMessage('Authentication failed', response);
+      setErrorMessage('Authentication failed');
       throw new Error('Authentication failed');
     }
   } catch (error) {
     setErrorMessage(error.message || 'Authentication error occurred');
-    console.error('Auth error:', error);
     throw error;
   }
 };
@@ -129,12 +107,9 @@ export const authenticateUser = async (email, password, setErrorMessage) => {
  */
 export const fetchListings = async (userId) => {
   try {
-    // From api.js file, the endpoint is /listings with userId query param
-    console.log('Fetching listings for user:', userId);
     const data = await makeServerRequest(`/listings?userId=${userId}`);
     return data;
   } catch (error) {
-    console.error('Error fetching listings:', error);
     return { result: [] };
   }
 };
@@ -144,26 +119,28 @@ export const fetchListings = async (userId) => {
  */
 export const fetchReservations = async (params = {}) => {
   try {
-    console.log('Fetching basic reservations with params:', params);
+    // Always ensure we have a high limit
+    const apiParams = { 
+      ...params,
+      limit: 10000 // Always use a high limit to get all reservations
+    };
     
-    // Map params to match Hostaway API expectations
-    const apiParams = { ...params };
-    
-    // Convert listingMapIds to listingId if provided
     if (params.listingMapIds) {
-      // API expects listingId, not listingMapIds
-      // If multiple listingIds are provided, we'll need to make multiple requests
-      // or implement a comma-separated string depending on what the API supports
-      if (Array.isArray(params.listingMapIds) && params.listingMapIds.length === 1) {
+      // API only accepts a single listingId
+      if (Array.isArray(params.listingMapIds) && params.listingMapIds.length > 0) {
+        // Take only the first ID from the array
         apiParams.listingId = params.listingMapIds[0];
+        if (params.listingMapIds.length > 1) {
+          console.log(`WARNING: API only supports querying one listing at a time. Only using first ID: ${apiParams.listingId}`);
+        }
       } else if (!Array.isArray(params.listingMapIds)) {
+        // Not an array, use as is
         apiParams.listingId = params.listingMapIds;
       }
-      // Remove the original listingMapIds
+      // Remove the original parameter to avoid confusion
       delete apiParams.listingMapIds;
     }
     
-    // Map date parameters to match API expectations
     if (params.fromDate) {
       apiParams.arrivalStartDate = params.fromDate;
       delete apiParams.fromDate;
@@ -174,10 +151,16 @@ export const fetchReservations = async (params = {}) => {
       delete apiParams.toDate;
     }
     
-    // Remove dateType as it's not needed for this endpoint
+    // Convert statuses array to comma-separated string if present
+    if (params.statuses && Array.isArray(params.statuses)) {
+      apiParams.status = params.statuses.join(',');
+      delete apiParams.statuses;
+    }
+    
     delete apiParams.dateType;
     
-    // Build query string
+    console.log(`Making API request with params:`, JSON.stringify(apiParams));
+    
     const queryParams = Object.entries(apiParams)
       .filter(([_, value]) => value !== null && value !== undefined)
       .map(([key, value]) => {
@@ -191,11 +174,10 @@ export const fetchReservations = async (params = {}) => {
     const url = `/reservations${queryParams ? `?${queryParams}` : ''}`;
     const response = await makeServerRequest(url);
     
-    // Handle various possible response structures
     let reservations = [];
     let meta = { 
       total: 0, 
-      limit: params.limit || 10, 
+      limit: apiParams.limit, 
       offset: params.offset || 0, 
       hasMore: false 
     };
@@ -211,9 +193,8 @@ export const fetchReservations = async (params = {}) => {
       meta.total = reservations.length;
     }
     
-    console.log(`Fetched ${reservations.length} basic reservations`);
+    console.log(`Fetched ${reservations.length} reservations from API call`);
     
-    // Always return in the expected format
     return { 
       reservations, 
       meta 
@@ -224,7 +205,7 @@ export const fetchReservations = async (params = {}) => {
       reservations: [], 
       meta: { 
         total: 0, 
-        limit: params.limit || 10, 
+        limit: 10000, 
         offset: params.offset || 0, 
         hasMore: false 
       } 
@@ -234,55 +215,38 @@ export const fetchReservations = async (params = {}) => {
 
 /**
  * Get consolidated financial report - separate from basic reservation data
- * @param {Object} params - Query parameters for financial data
- * @returns {Promise<Object>} Financial report data
  */
 export const getFinancialReport = async (params = {}) => {
   try {
-    console.log('Fetching financial report with params:', params);
-    
-    // Prepare the request body for the consolidated financial report endpoint
     const requestBody = {
-      statuses: ['confirmed', 'new', 'modified', 'ownerStay'] // Include all valid statuses
+      statuses: ['confirmed', 'new', 'modified', 'ownerStay'],
+      limit: 10000
     };
     
-    // Map the params to the expected format for the financial report endpoint
     if (params.listingMapIds) {
-      // Financial API might expect different parameter for listings
-      // We'll keep the original name but ensure it's in the right format
       requestBody.listingMapIds = Array.isArray(params.listingMapIds) 
         ? params.listingMapIds 
         : [params.listingMapIds];
     }
     
-    // Map date parameters appropriately for financial endpoint
     if (params.fromDate) requestBody.fromDate = params.fromDate;
     if (params.toDate) requestBody.toDate = params.toDate;
-    
-    // Include dateType if specified (arrivalDate, departureDate, etc.)
     if (params.dateType) requestBody.dateType = params.dateType;
-    
-    // Include any additional parameters that might be needed for financial endpoint
     if (params.limit) requestBody.limit = params.limit;
     if (params.offset) requestBody.offset = params.offset;
     
-    console.log('Financial report request body:', requestBody);
-    
-    // Make the consolidated financial report request
-    const response = await makeServerRequest('/finance/report/consolidated', 'POST', requestBody);
-    
-    console.log('Financial report response type:', typeof response);
-    console.log('Financial report response keys:', response ? Object.keys(response) : 'no response');
-    
-    // Log sample of data to see the structure
-    if (response?.result?.rows && response.result.rows.length > 0) {
-      console.log('Financial report sample row:', JSON.stringify(response.result.rows[0], null, 2));
-      console.log('Financial report columns:', response.result.columns);
+    // If we have specific reservation IDs, use those for a more targeted query
+    if (params.reservationIds && Array.isArray(params.reservationIds)) {
+      requestBody.reservationIds = params.reservationIds;
     }
+    
+    console.log(`Fetching financial report with limit: ${requestBody.limit}, ReservationIDs: ${requestBody.reservationIds ? requestBody.reservationIds.length : 'none'}`);
+    
+    const response = await makeServerRequest('/finance/report/consolidated', 'POST', requestBody);
+    console.log(`Financial report returned ${response?.result?.rows?.length || 0} rows`);
     
     return response;
   } catch (error) {
-    console.error('Error fetching financial report:', error);
     return { 
       result: {
         rows: [],
@@ -294,119 +258,180 @@ export const getFinancialReport = async (params = {}) => {
 
 /**
  * Enhanced function that combines reservation data with financial data
- * @param {Object} params - Parameters for both endpoints
- * @returns {Promise<Object>} Combined reservation and financial data
  */
 const pendingRequests = {};
 
 export const getReservationsWithFinancialData = async (params = {}) => {
   try {
-    // Generate a request key based on the parameters
     const requestKey = JSON.stringify(params);
     
-    // Check if there's already a pending request with the same parameters
     if (pendingRequests[requestKey]) {
-      console.log('Duplicate request detected, returning cached promise');
+      console.log('Request already in progress, returning pending request');
       return pendingRequests[requestKey];
     }
     
-    // Create a new promise for this request
     const promise = (async () => {
+      // Always ensure we use a high limit
+      const enhancedParams = { 
+        ...params,
+        limit: 10000  // Always use a high limit
+      };
+      
+      console.log(`Getting reservations with financial data, limit: ${enhancedParams.limit}`);
+      
       let allReservations = [];
       let meta = { 
         total: 0, 
-        limit: params.limit || 10, 
-        offset: params.offset || 0, 
+        limit: enhancedParams.limit, 
+        offset: enhancedParams.offset || 0, 
         hasMore: false 
       };
       
       try {
-        // Handle multiple listings more efficiently - use a batch approach
-        if (params.listingMapIds && Array.isArray(params.listingMapIds) && params.listingMapIds.length > 0) {
-          console.log(`Fetching reservations for ${params.listingMapIds.length} listings`);
-          
-          // For larger numbers of listings, use a single request with comma-separated IDs
-          // This will be more efficient than making individual requests
-          if (params.listingMapIds.length <= 5) {
-            // For a small number of listings, fetch individually for better reliability
-            for (const listingId of params.listingMapIds) {
-              const listingParams = { ...params, listingMapIds: listingId };
-              const singleListingResult = await fetchReservations(listingParams);
-              
-              if (singleListingResult.reservations && singleListingResult.reservations.length > 0) {
-                allReservations = [...allReservations, ...singleListingResult.reservations];
-              }
-            }
-          } else {
-            // Use a single batch request for efficiency with many listings
-            const batchParams = { ...params };
-            // API might support comma-separated IDs
-            // If this doesn't work, revert to individual requests
-            const reservationsData = await fetchReservations(batchParams);
-            allReservations = reservationsData.reservations || [];
-            meta = reservationsData.meta || meta;
-          }
-          
-          console.log(`Total reservations from all listings: ${allReservations.length}`);
-          
-          // Update meta information
-          meta.total = allReservations.length;
-        } else {
-          // If we're dealing with a single listing or no listing specified, just use fetchReservations directly
-          const reservationsData = await fetchReservations(params);
-          allReservations = reservationsData.reservations || [];
-          meta = reservationsData.meta || meta;
-        }
+        // Get all reservations in a single API call instead of multiple calls
+        console.log(`Fetching all reservations with params:`, JSON.stringify(enhancedParams));
+        const reservationsData = await fetchReservations(enhancedParams);
+        allReservations = reservationsData.reservations || [];
+        meta = reservationsData.meta || meta;
         
-        // If we have no reservations, just return the empty result
+        console.log(`Reservations returned: ${allReservations.length}`);
+        
         if (allReservations.length === 0) {
-          console.log('No basic reservations found, returning empty result');
+          console.log('No reservations found, returning empty result');
           return { reservations: [], meta };
         }
         
-        // Step 2: Get financial report with the same parameters
-        const financialData = await getFinancialReport(params);
+        // Process financial data
+        let allFinancialMap = {};
+        let totalRowsProcessed = 0;
         
-        console.log('Processing financial data for', allReservations.length, 'reservations');
+        // Extract the listing IDs from the parameters
+        const listingMapIds = enhancedParams.listingMapIds;
         
-        // Step 3: Process the financial data into a more usable format
-        const financialMap = {};
-        
-        if (financialData?.result?.rows && financialData.result.columns) {
-          const columns = financialData.result.columns;
+        if (listingMapIds && Array.isArray(listingMapIds) && listingMapIds.length > 0) {
+          console.log(`Processing ${listingMapIds.length} listings one by one for financial data`);
           
-          // Process each row of financial data
-          financialData.result.rows.forEach(row => {
-            const processedRow = {};
+          // Process each listing separately
+          for (let i = 0; i < listingMapIds.length; i++) {
+            const listingId = listingMapIds[i];
+            console.log(`Processing financial data for listing ${i+1}/${listingMapIds.length}: ID ${listingId}`);
             
-            // Map column values to their names
-            columns.forEach((column, index) => {
-              if (column.name) {
-                processedRow[column.name] = row[index];
+            // Filter reservations for this listing
+            const listingReservations = allReservations.filter(res => 
+              res.listingId === listingId || 
+              res.listingMapId === listingId ||
+              res.listing?.id === listingId
+            );
+            
+            if (listingReservations.length === 0) {
+              console.log(`No reservations found for listing ${listingId}, skipping`);
+              continue;
+            }
+            
+            console.log(`Found ${listingReservations.length} reservations for listing ${listingId}`);
+            
+            // Get all reservation IDs for this listing
+            const listingReservationIds = listingReservations
+              .map(res => res.id || res.reservationId)
+              .filter(id => id);
+              
+            if (listingReservationIds.length === 0) {
+              console.log(`No valid reservation IDs for listing ${listingId}, skipping`);
+              continue;
+            }
+            
+            // Fetch financial data for this listing only
+            const listingFinancialParams = { 
+              ...enhancedParams,
+              listingMapIds: [listingId],
+              reservationIds: listingReservationIds,
+              limit: 10000 
+            };
+            
+            console.log(`Fetching financial data for listing ${listingId} with ${listingReservationIds.length} reservations`);
+            
+            const financialData = await getFinancialReport(listingFinancialParams);
+            const rowsCount = financialData?.result?.rows?.length || 0;
+            console.log(`Financial data received for listing ${listingId}: ${rowsCount} rows`);
+            totalRowsProcessed += rowsCount;
+            
+            // Process financial data for this listing
+            if (financialData?.result?.rows && financialData.result.columns) {
+              const columns = financialData.result.columns;
+              
+              financialData.result.rows.forEach(row => {
+                const processedRow = {};
+                
+                columns.forEach((column, index) => {
+                  if (column.name) {
+                    processedRow[column.name] = row[index];
+                  }
+                });
+                
+                const numericId = processedRow.id;
+                
+                if (numericId) {
+                  allFinancialMap[String(numericId)] = processedRow;
+                }
+                
+                if (processedRow.reservationId) {
+                  allFinancialMap[processedRow.reservationId] = processedRow;
+                }
+              });
+            }
+          }
+        } else {
+          console.log("No listing IDs provided, using reservation IDs only");
+          
+          // Get all reservation IDs
+          const allReservationIds = allReservations
+            .map(res => res.id || res.reservationId)
+            .filter(id => id);
+            
+          // Fetch financial data with ALL reservation IDs at once
+          const financialParams = { 
+            ...enhancedParams,
+            reservationIds: allReservationIds,
+            limit: 10000 
+          };
+          
+          console.log(`Fetching financial data for ${allReservationIds.length} reservations`);
+          
+          const financialData = await getFinancialReport(financialParams);
+          console.log(`Financial data received for ${financialData?.result?.rows?.length || 0} rows`);
+          totalRowsProcessed += (financialData?.result?.rows?.length || 0);
+          
+          // Process financial data
+          if (financialData?.result?.rows && financialData.result.columns) {
+            const columns = financialData.result.columns;
+            
+            financialData.result.rows.forEach(row => {
+              const processedRow = {};
+              
+              columns.forEach((column, index) => {
+                if (column.name) {
+                  processedRow[column.name] = row[index];
+                }
+              });
+              
+              const numericId = processedRow.id;
+              
+              if (numericId) {
+                allFinancialMap[String(numericId)] = processedRow;
+              }
+              
+              if (processedRow.reservationId) {
+                allFinancialMap[processedRow.reservationId] = processedRow;
               }
             });
-            
-            // IMPORTANT: Use the internal numeric ID for matching, NOT the string reservationId
-            // This is critical because reservations are matched by their numeric ID
-            const numericId = processedRow.id;
-            
-            if (numericId) {
-              // Store in our financial map using the NUMERIC ID as key
-              financialMap[String(numericId)] = processedRow;
-            }
-            
-            // Also store using the string reservationId as a fallback
-            if (processedRow.reservationId) {
-              financialMap[processedRow.reservationId] = processedRow;
-            }
-          });
+          }
         }
         
-        console.log('Financial map created with', Object.keys(financialMap).length, 'entries');
+        console.log(`Total financial rows processed across all listings: ${totalRowsProcessed}`);
+        console.log(`Financial map contains data for ${Object.keys(allFinancialMap).length} reservations`);
         
-        // Step 4: Merge the financial data with the reservation data
-        const enhancedReservations = allReservations.map(reservation => {
-          // Get the reservation ID - could be in different fields
+        // Map financial data to all reservations
+        const processedReservations = allReservations.map(reservation => {
           const reservationId = reservation.id || reservation.reservationId;
           
           if (!reservationId) {
@@ -417,60 +442,50 @@ export const getReservationsWithFinancialData = async (params = {}) => {
             };
           }
           
-          // Find the matching financial data using numeric ID
-          const financialInfo = financialMap[String(reservationId)];
+          const financialInfo = allFinancialMap[String(reservationId)];
           
-          // Merge the data if found
           if (financialInfo) {
             return {
               ...reservation,
-              // Add the entire financial data object
               financialData: financialInfo,
-              // Also add critical fields directly to the reservation for easier access
               ownerPayout: parseFloat(financialInfo.ownerPayout || financialInfo.ownerAmount || 0),
               baseRate: parseFloat(financialInfo.baseRate || reservation.baseRate || 0),
               cleaningFee: parseFloat(financialInfo.cleaningFee || financialInfo.cleaningFeeValue || reservation.cleaningFee || 0)
             };
           }
           
-          // Return the original reservation with default values if no financial data found
           return {
             ...reservation,
-            ownerPayout: 0, // Default to 0 if no financial data
+            ownerPayout: 0,
             financialData: null
           };
         });
         
-        // Count how many reservations have financial data
-        const withFinancialData = enhancedReservations.filter(res => res.financialData !== null).length;
-        console.log(`Enhanced ${enhancedReservations.length} reservations, ${withFinancialData} with financial data`);
+        // Count how many reservations actually have financial data
+        const withFinancialData = processedReservations.filter(res => res.financialData !== null).length;
+        console.log(`Total reservations: ${processedReservations.length}, with financial data: ${withFinancialData}`);
         
-        // Return in the expected format
         return {
-          reservations: enhancedReservations,
+          reservations: processedReservations,
           meta: {
             ...meta,
-            total: enhancedReservations.length
+            total: processedReservations.length
           }
         };
       } finally {
-        // Remove this request from the pending requests
         delete pendingRequests[requestKey];
       }
     })();
     
-    // Store the promise so we can reuse it for duplicate requests
     pendingRequests[requestKey] = promise;
-    
-    // Return the promise
     return promise;
   } catch (error) {
-    console.error('Error fetching reservations with financial data:', error);
+    console.error('Error in getReservationsWithFinancialData:', error);
     return { 
       reservations: [], 
       meta: { 
         total: 0, 
-        limit: params.limit || 10, 
+        limit: 10000, 
         offset: params.offset || 0, 
         hasMore: false 
       } 
@@ -483,10 +498,8 @@ export const getReservationsWithFinancialData = async (params = {}) => {
  */
 export const getReservationById = async (id) => {
   try {
-    // From api.js, this endpoint is /reservations/:id
     return await makeServerRequest(`/reservations/${id}`);
   } catch (error) {
-    console.error(`Error fetching reservation ${id}:`, error);
     return { result: null };
   }
 };
@@ -496,27 +509,284 @@ export const getReservationById = async (id) => {
  */
 export const getCalendarData = async (listingId, startDate, endDate) => {
   try {
-    // From api.js, this endpoint is /calendar with query params
     return await makeServerRequest(`/calendar?listingId=${listingId}&startDate=${startDate}&endDate=${endDate}`);
   } catch (error) {
-    console.error('Error fetching calendar data:', error);
     return { result: [] };
   }
 };
 
-// These functions are kept as stubs for backward compatibility
-
-export const uploadMessage = async (message, token) => {
-  console.warn('uploadMessage: This endpoint is not available');
-  return { success: false };
-};
-
-export const fetchUsers = async () => {
-  console.warn('fetchUsers: This endpoint is not available');
-  return { result: [] };
+/**
+ * Get listing financials report - simplified revenue totals
+ */
+export const getListingFinancials = async (params = {}) => {
+  try {
+    const requestBody = {
+      statuses: ['confirmed', 'new', 'modified', 'ownerStay'],
+      limit: 10000
+    };
+    
+    if (params.listingMapIds) {
+      requestBody.listingMapIds = Array.isArray(params.listingMapIds) 
+        ? params.listingMapIds 
+        : [params.listingMapIds];
+    }
+    
+    // Log whether we're getting future revenue or total
+    const isFutureRevenue = !!params.fromDate;
+    console.log(`${isFutureRevenue ? 'FUTURE REVENUE' : 'TOTAL REVENUE'} API call with fromDate: ${params.fromDate || 'none'}`);
+    
+    if (params.fromDate) requestBody.fromDate = params.fromDate;
+    if (params.toDate) requestBody.toDate = params.toDate;
+    if (params.dateType) requestBody.dateType = params.dateType;
+    
+    console.log(`Fetching listing financials with params:`, JSON.stringify(requestBody));
+    
+    const response = await makeServerRequest('/finance/report/listingFinancials', 'POST', requestBody);
+    
+    console.log(`Listing financials raw response received, processing...`);
+    
+    // Check if we have rows and columns to process
+    if (response?.result?.rows && response.result.columns) {
+      console.log(`Found ${response.result.rows.length} rows and ${response.result.columns.length} columns to process`);
+      
+      // Process columns and rows similar to getReservationsWithFinancialData
+      const columns = response.result.columns;
+      let totalOwnerPayout = 0;
+      let processedRows = [];
+      
+      // Process each row
+      response.result.rows.forEach(row => {
+        const processedRow = {};
+        
+        // Map column names to values
+        columns.forEach((column, index) => {
+          if (column.name) {
+            processedRow[column.name] = row[index];
+          }
+        });
+        
+        // Add to total owner payout
+        const rowOwnerPayout = parseFloat(processedRow.ownerPayout || processedRow.ownerAmount || 0);
+        if (!isNaN(rowOwnerPayout)) {
+          totalOwnerPayout += rowOwnerPayout;
+        }
+        
+        processedRows.push(processedRow);
+      });
+      
+      console.log(`${isFutureRevenue ? 'FUTURE' : 'TOTAL'} calculated ownerPayout: ${totalOwnerPayout} from ${processedRows.length} rows`);
+      
+      // Return processed data with clear distinction between total and future revenue
+      return { 
+        result: {
+          ownerPayout: totalOwnerPayout,
+          totalRevenue: isFutureRevenue ? 0 : totalOwnerPayout, // Only set totalRevenue for all-time calls
+          futureRevenue: isFutureRevenue ? totalOwnerPayout : 0, // Only set futureRevenue for future calls
+          sharingRevenue: 0,
+          processedRows: processedRows,
+          isFutureRevenue: isFutureRevenue  // Flag to help debugging
+        } 
+      };
+    } else {
+      console.log(`No rows/columns format detected in response, returning raw result`);
+      
+      // If not in columns/rows format, return as is
+      return response;
+    }
+  } catch (error) {
+    console.error('Error fetching listing financials:', error);
+    return { 
+      result: {
+        ownerPayout: 0,
+        totalRevenue: 0,
+        futureRevenue: 0,
+        sharingRevenue: 0
+      }
+    };
+  }
 };
 
 export const requestRevenueCalculation = async (message) => {
-  console.warn('requestRevenueCalculation: This endpoint is not available');
-  return { result: null };
+  try {
+    return await makeServerRequest('/calculations/revenue', 'POST', { message });
+  } catch (error) {
+    return { result: null };
+  }
+};
+
+/**
+ * Get monthly revenue data for charts directly from API
+ */
+export const getMonthlyRevenueData = async (listingIds, months = 6) => {
+  try {
+    const results = [];
+    const today = new Date();
+    console.log(`Today's date: ${today.toISOString()}`);
+    
+    // Get revenue for each of the past N months
+    for (let i = 0; i < months; i++) {
+      // Calculate start and end date for this month
+      const startDate = new Date();
+      startDate.setMonth(today.getMonth() - i);
+      startDate.setDate(1); // First day of month
+      startDate.setHours(0, 0, 0, 0);
+      
+      const endDate = new Date(startDate);
+      endDate.setMonth(endDate.getMonth() + 1);
+      endDate.setDate(0); // Last day of month
+      endDate.setHours(23, 59, 59, 999);
+      
+      // Format dates for API
+      const fromDateStr = formatDateForApi(startDate);
+      const toDateStr = formatDateForApi(endDate);
+      
+      // Get month name for label - ensure we use same format as current month in HomeScreen
+      const monthName = startDate.toLocaleString('default', { month: 'short' });
+      
+      console.log(`Fetching revenue for month ${i + 1}/${months}: ${monthName} (${fromDateStr} to ${toDateStr})`);
+      
+      // Call API to get revenue for this month
+      const monthRevenue = await getListingFinancials({
+        listingMapIds: listingIds,
+        fromDate: fromDateStr,
+        toDate: toDateStr,
+        dateType: 'arrivalDate',
+        statuses: ['confirmed', 'new', 'modified', 'ownerStay']
+      });
+      
+      // Extract revenue value
+      const revenue = monthRevenue?.result?.ownerPayout || 0;
+      
+      // Store result
+      results.unshift({
+        month: monthName,
+        revenue: revenue,
+        date: startDate,
+        isCurrentMonth: i === 0
+      });
+      
+      console.log(`Month ${monthName}: $${revenue} ${i === 0 ? '(current month)' : ''}`);
+    }
+    
+    // Format data for chart
+    const labels = results.map(item => item.month);
+    const data = results.map(item => item.revenue);
+    const total = data.reduce((sum, val) => sum + val, 0);
+    
+    // Find current month for future revenue calculation
+    const currentMonthIndex = results.findIndex(item => item.isCurrentMonth);
+    
+    console.log('Monthly revenue data prepared:', {
+      labels,
+      data,
+      total,
+      currentMonth: results[currentMonthIndex]?.month || 'unknown'
+    });
+    
+    return {
+      labels,
+      data,
+      total,
+      currentMonthIndex: currentMonthIndex
+    };
+  } catch (error) {
+    console.error('Error fetching monthly revenue data:', error);
+    return {
+      labels: [],
+      data: [],
+      total: 0,
+      currentMonthIndex: -1
+    };
+  }
+};
+
+/**
+ * Get future monthly revenue data for the next N months
+ */
+export const getFutureRevenueData = async (listingIds, months = 6) => {
+  try {
+    const results = [];
+    const today = new Date();
+    console.log(`Getting future revenue starting from: ${today.toISOString()}`);
+    
+    // Get revenue for each of the next N months
+    for (let i = 0; i < months; i++) {
+      // Calculate start and end date for this month
+      const startDate = new Date();
+      startDate.setMonth(today.getMonth() + i); // Future months
+      startDate.setDate(1); // First day of month
+      startDate.setHours(0, 0, 0, 0);
+      
+      const endDate = new Date(startDate);
+      endDate.setMonth(endDate.getMonth() + 1);
+      endDate.setDate(0); // Last day of month
+      endDate.setHours(23, 59, 59, 999);
+      
+      // Format dates for API
+      const fromDateStr = formatDateForApi(startDate);
+      const toDateStr = formatDateForApi(endDate);
+      
+      // Get month name for label
+      const monthName = startDate.toLocaleString('default', { month: 'short' });
+      
+      console.log(`Fetching FUTURE revenue for month ${i + 1}/${months}: ${monthName} (${fromDateStr} to ${toDateStr})`);
+      
+      // Call API to get revenue for this month
+      const monthRevenue = await getListingFinancials({
+        listingMapIds: listingIds,
+        fromDate: fromDateStr,
+        toDate: toDateStr,
+        dateType: 'arrivalDate',
+        statuses: ['confirmed', 'new', 'modified', 'ownerStay']
+      });
+      
+      // Extract revenue value
+      const revenue = monthRevenue?.result?.ownerPayout || 0;
+      
+      // Store result
+      results.push({
+        month: monthName,
+        revenue: revenue,
+        date: startDate,
+        isCurrentMonth: i === 0
+      });
+      
+      console.log(`Future Month ${monthName}: $${revenue} ${i === 0 ? '(current month)' : ''}`);
+    }
+    
+    // Format data for chart
+    const labels = results.map(item => item.month);
+    const data = results.map(item => item.revenue);
+    const total = data.reduce((sum, val) => sum + val, 0);
+    
+    console.log('Future revenue data prepared:', {
+      labels,
+      data,
+      total
+    });
+    
+    return {
+      labels,
+      data,
+      total,
+      currentMonthIndex: 0 // Current month is always first
+    };
+  } catch (error) {
+    console.error('Error fetching future revenue data:', error);
+    return {
+      labels: [],
+      data: [],
+      total: 0,
+      currentMonthIndex: 0
+    };
+  }
+};
+
+// Helper function to format date for API
+const formatDateForApi = (date) => {
+  if (!date) return null;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };

@@ -328,8 +328,8 @@ const RevenueChart = ({ data, loading }) => {
             {/* Table rows */}
             <View style={styles.tableContent}>
               {labels.map((month, index) => {
-                // Force display of all six months for testing
-                const displayValue = sampleData[index];
+                // Use actual data instead of sample data
+                const displayValue = hasRealData ? workingData[index] : sampleData[index];
                 
                 return (
                   <View 
@@ -351,7 +351,10 @@ const RevenueChart = ({ data, loading }) => {
               <View style={[styles.tableRow, styles.totalRow]}>
                 <Text style={[styles.tableCell, styles.totalCell, { flex: 1 }]}>Total</Text>
                 <Text style={[styles.tableCell, styles.totalCell, { flex: 2, textAlign: 'right' }]}>
-                  {formatCurrency(sampleData.reduce((sum, val) => sum + val, 0))}
+                  {formatCurrency(hasRealData 
+                    ? workingData.reduce((sum, val) => sum + val, 0)
+                    : sampleData.reduce((sum, val) => sum + val, 0)
+                  )}
                 </Text>
               </View>
             </View>
@@ -363,8 +366,11 @@ const RevenueChart = ({ data, loading }) => {
               <Text style={styles.summaryLabel}>Monthly Average</Text>
               <Text style={styles.summaryValue}>
                 {formatCurrency(
-                  sampleData.reduce((sum, val) => sum + val, 0) / 
-                  sampleData.filter(val => val > 0).length
+                  hasRealData
+                    ? (workingData.reduce((sum, val) => sum + val, 0) / 
+                       workingData.filter(val => val > 0).length || 1)
+                    : (sampleData.reduce((sum, val) => sum + val, 0) / 
+                       sampleData.filter(val => val > 0).length)
                 )}
               </Text>
             </View>

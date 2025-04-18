@@ -1,5 +1,5 @@
-import React, { createContext, useState, useContext, useEffect, useRef, useCallback } from 'react';
-import {authenticateUser, fetchListings, getReservationsWithFinancialData, fetchUsers, getFinancialReport} from '../services/api';
+import React, { createContext, useState, useContext, useEffect, useRef } from 'react';
+import {authenticateUser, fetchListings, getReservationsWithFinancialData} from '../services/api';
 import * as Keychain from 'react-native-keychain';
 import {jwtDecode} from 'jwt-decode';
 
@@ -19,9 +19,9 @@ export function AuthProvider({ children }) {
   const [reservations, setReservations] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
-  const authInitialized = useRef(false);
   
   // Use refs to track what data we've loaded to prevent re-renders
+  const authInitialized = useRef(false);
   const loadedListingsRef = useRef(false);
   const loadedReservationsRef = useRef(false);
   const isLoadingRef = useRef(false);
@@ -45,32 +45,26 @@ export function AuthProvider({ children }) {
     const initializeAuth = async () => {
       authInitialized.current = true;
       try {
-        console.log("Initializing auth state...");
         setIsLoading(true);
         const token = await getToken();
         
         if (!token) {
-          console.log("No token found");
           setIsLoading(false);
           return;
         }
         
-        console.log("Found token, validating");
         try {
           const decodedToken = decodeToken(token);
           if (decodedToken?.userId) {
-            console.log("Token valid, setting user data");
             setUserData(decodedToken);
           } else {
-            console.log("Invalid token, clearing");
             await removeToken();
           }
         } catch (error) {
-          console.error("Token validation error:", error);
           await removeToken();
         }
       } catch (error) {
-        console.error("Auth initialization error:", error);
+        // Error handling
       } finally {
         setIsLoading(false);
       }
@@ -89,7 +83,6 @@ export function AuthProvider({ children }) {
       loadedListingsRef.current = true;
       setIsLoading(true);
       try {
-        console.log('Loading listings for user:', userData);
         const listingsData = await fetchListings(userData.haUserId);
         
         let listingsArray = [];
@@ -101,10 +94,8 @@ export function AuthProvider({ children }) {
           listingsArray = listingsData;
         }
         
-        console.log(`Loaded ${listingsArray.length} properties`);
         setListings(listingsArray);
       } catch (error) {
-        console.error('Error loading listings:', error);
         setErrorMessage('Failed to load properties');
         loadedListingsRef.current = false;
       } finally {
@@ -119,59 +110,52 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     // Only load reservations when listings are available
     const fetchReservationsData = async () => {
-      // Guards to prevent infinite loops and duplicate requests
-      if (!listings || listings.length === 0) return;
-      if (loadedReservationsRef.current) return;
-      if (reservationFetchInProgress.current) return;
-      
-      // Throttle API requests - no more than once every 10 seconds
-      const now = Date.now();
-      if (now - lastReservationFetchTime.current < 10000) {
-        console.log('Skipping reservation fetch - throttled');
+      if (reservationFetchInProgress.current || !listings || listings.length === 0) {
         return;
       }
       
-      lastReservationFetchTime.current = now;
       reservationFetchInProgress.current = true;
-      loadedReservationsRef.current = true;
-      
       setIsLoading(true);
+      
       try {
-        // Get today's date
         const today = new Date();
-        const todayStr = today.toISOString().split('T')[0];
+        const sixMonthsFromNow = new Date(today);
+        sixMonthsFromNow.setMonth(today.getMonth() + 6);
         
-        // Get a date 6 months in the future
-        const futureDate = new Date();
-        futureDate.setMonth(futureDate.getMonth() + 6);
-        const futureDateStr = futureDate.toISOString().split('T')[0];
+        const formatDate = (date) => {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          return `${year}-${month}-${day}`;
+        };
         
-        console.log(`Loading reservations from ${todayStr} to ${futureDateStr}`);
-        console.log(`For properties:`, listings.map(l => l.id));
+        const todayStr = formatDate(today);
+        const futureDateStr = formatDate(sixMonthsFromNow);
         
-        // Use the combined function that fetches reservations with financial data
+        // Get all listing IDs
         const listingIds = listings.map(listing => listing.id);
         const params = {
           listingMapIds: listingIds,
           fromDate: todayStr,
           toDate: futureDateStr,
           dateType: 'arrivalDate',
-          status: 'confirmed'
+          status: 'confirmed',
+          limit: 10000  // Explicitly set a high limit
         };
         
-        console.log('Calling getReservationsWithFinancialData with params:', params);
+        console.log(`AuthContext: Fetching reservations with params:`, JSON.stringify(params));
         const result = await getReservationsWithFinancialData(params);
-        console.log('Combined reservations data received:', result?.reservations?.length || 0, 'items');
+        
+        console.log(`AuthContext: Reservations returned: ${result?.reservations?.length || 0}`);
         
         // Set the reservations directly from the result
         if (result?.reservations && Array.isArray(result.reservations)) {
           setReservations(result.reservations);
         } else {
-          console.warn('Unexpected reservation data format:', result);
           setReservations([]);
         }
       } catch (error) {
-        console.error('Error loading reservations:', error);
+        console.error('Error fetching reservations in AuthContext:', error);
         setErrorMessage('Failed to load reservations');
         setReservations([]);
         loadedReservationsRef.current = false;
@@ -186,22 +170,18 @@ export function AuthProvider({ children }) {
 
   // Refresh data function
   const refreshData = async () => {
-    console.log('Refreshing data...', userData);
     if (isLoading || !userData?.userId) {
       return false;
     }
     
     // Prevent multiple concurrent refreshes
     if (isLoadingRef.current) {
-      console.log('Refresh already in progress, skipping');
       return false;
     }
     
     isLoadingRef.current = true;
     setIsLoading(true);
     try {
-      console.log('Refreshing data...',);
-      
       // Reset loaded flags to force a refetch
       loadedListingsRef.current = false;
       loadedReservationsRef.current = false;
@@ -223,7 +203,6 @@ export function AuthProvider({ children }) {
       // After listings are set, the listings useEffect will trigger and load reservations
       return true;
     } catch (error) {
-      console.error('Error refreshing data:', error);
       setErrorMessage('Failed to refresh data');
       return false;
     } finally {
@@ -236,7 +215,6 @@ export function AuthProvider({ children }) {
     setIsLoading(true);
     try {
       const user = await authenticateUser(email, password, setErrorMessage);
-      console.log('Authenticated user:', user);
       if (user?.accessToken) {
         await storeToken(user.accessToken);
         const decodedToken = decodeToken(user.accessToken);
@@ -245,7 +223,6 @@ export function AuthProvider({ children }) {
       }
       return false;
     } catch (error) {
-      console.error('Error during sign in:', error);
       setErrorMessage(error.message || 'Sign in failed');
       return false;
     } finally {
@@ -272,7 +249,6 @@ export function AuthProvider({ children }) {
       
       return true;
     } catch (error) {
-      console.error('Error during sign out:', error);
       return false;
     } finally {
       setIsLoading(false);
@@ -289,26 +265,21 @@ export function AuthProvider({ children }) {
     setIsLoading(true);
     
     try {
-      console.log("Checking token...");
       const token = await getToken();
       
       if (!token) {
-        console.log("No token found during check");
         return false;
       }
       
       const decodedToken = decodeToken(token);
       if (decodedToken?.userId) {
-        console.log("Token valid during check, setting user data");
         setUserData(decodedToken);
         return true;
       }
       
-      console.log("Invalid token during check");
       await removeToken();
       return false;
     } catch (error) {
-      console.error('Error checking token:', error);
       return false;
     } finally {
       setIsLoading(false);
@@ -321,7 +292,6 @@ export function AuthProvider({ children }) {
       const decoded = jwtDecode(token);
       return decoded;
     } catch (error) {
-      console.error("Invalid token", error);
       return null;
     }
   };
@@ -331,7 +301,6 @@ export function AuthProvider({ children }) {
       await Keychain.setGenericPassword('authToken', token);
       return true;
     } catch (error) {
-      console.error('Could not store the token', error);
       return false;
     }
   };
@@ -341,7 +310,6 @@ export function AuthProvider({ children }) {
       const credentials = await Keychain.getGenericPassword();
       return credentials ? credentials.password : null;
     } catch (error) {
-      console.error('Could not load token', error);
       return null;
     }
   };
@@ -351,7 +319,6 @@ export function AuthProvider({ children }) {
       await Keychain.resetGenericPassword();
       return true;
     } catch (error) {
-      console.error('Could not delete token', error);
       return false;
     }
   };
