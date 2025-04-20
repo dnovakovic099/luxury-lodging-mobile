@@ -119,10 +119,10 @@ export const fetchListings = async (userId) => {
  */
 export const fetchReservations = async (params = {}) => {
   try {
-    // Always ensure we have a high limit
+    // Use the provided limit or default to a high limit
     const apiParams = { 
       ...params,
-      limit: 10000 // Always use a high limit to get all reservations
+      limit: params.limit || 10000 // Use provided limit or default to 10000
     };
     
     if (params.listingMapIds) {
@@ -197,7 +197,7 @@ export const fetchReservations = async (params = {}) => {
       reservations: [], 
       meta: { 
         total: 0, 
-        limit: 10000, 
+        limit: params.limit || 10000, 
         offset: params.offset || 0, 
         hasMore: false 
       } 
@@ -259,10 +259,10 @@ export const getReservationsWithFinancialData = async (params = {}) => {
     }
     
     const promise = (async () => {
-      // Always ensure we use a high limit
+      // Use the provided limit or default to high limit
       const enhancedParams = { 
         ...params,
-        limit: 10000  // Always use a high limit
+        limit: params.limit || 10000  // Use provided limit or default to 10000
       };
       
       let allReservations = [];
@@ -274,7 +274,7 @@ export const getReservationsWithFinancialData = async (params = {}) => {
       };
       
       try {
-        // Get all reservations in a single API call instead of multiple calls
+        // Get reservations with the specified limit
         const reservationsData = await fetchReservations(enhancedParams);
         allReservations = reservationsData.reservations || [];
         meta = reservationsData.meta || meta;
@@ -320,7 +320,7 @@ export const getReservationsWithFinancialData = async (params = {}) => {
               ...enhancedParams,
               listingMapIds: [listingId],
               reservationIds: listingReservationIds,
-              limit: 10000 
+              limit: 10000 // Always use high limit for financial data
             };
             
             const financialData = await getFinancialReport(listingFinancialParams);
@@ -362,7 +362,7 @@ export const getReservationsWithFinancialData = async (params = {}) => {
           const financialParams = { 
             ...enhancedParams,
             reservationIds: allReservationIds,
-            limit: 10000 
+            limit: 10000 // Always use high limit for financial data
           };
           
           const financialData = await getFinancialReport(financialParams);
@@ -444,7 +444,7 @@ export const getReservationsWithFinancialData = async (params = {}) => {
       reservations: [], 
       meta: { 
         total: 0, 
-        limit: 10000, 
+        limit: params.limit || 10000, 
         offset: params.offset || 0, 
         hasMore: false 
       } 

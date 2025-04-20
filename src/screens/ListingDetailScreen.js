@@ -76,33 +76,99 @@ const ListingDetailScreen = ({ route, navigation }) => {
       
       // 2. Get monthly revenue data for chart
       console.log(`Fetching monthly revenue data for property ${listingId}`);
-      const monthlyData = await getMonthlyRevenueData([listingId], 6); // Get 6 months of data
+      const monthlyData = await getMonthlyRevenueData([listingId], 24); // Get 24 months of data for better filtering
+      
+      // Process data for different time periods
+      const currentYear = new Date().getFullYear();
+      
+      // Process 6M data - keep as is (API already returns last 6 months)
+      const sixMonthsData = {
+        labels: monthlyData.labels.slice(0, 6),
+        data: monthlyData.data.slice(0, 6),
+        years: monthlyData.years.slice(0, 6),
+        total: monthlyData.data.slice(0, 6).reduce((sum, val) => sum + val, 0)
+      };
+      
+      // Process YTD data - filter current year only
+      const ytdData = {
+        labels: [],
+        data: [],
+        years: [],
+        total: 0
+      };
+      
+      // Process current month data
+      const currentMonth = new Date().getMonth(); // 0-based (Jan=0, Dec=11)
+      const currentMonthName = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][currentMonth];
+      const mtdData = {
+        labels: [currentMonthName],
+        data: [0], // Default to 0
+        years: [currentYear],
+        total: 0
+      };
+      
+      // Process 2024 data specifically
+      const year2024Data = {
+        labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+        data: Array(12).fill(0),
+        years: Array(12).fill(2024),
+        total: 0
+      };
+      
+      // Filter data for YTD, MTD and 2024 views
+      for (let i = 0; i < monthlyData.labels.length; i++) {
+        const year = monthlyData.years[i];
+        const month = monthlyData.labels[i];
+        const value = monthlyData.data[i];
+        
+        // Add to YTD if current year
+        if (year === currentYear) {
+          ytdData.labels.push(month);
+          ytdData.data.push(value);
+          ytdData.years.push(year);
+          ytdData.total += value;
+          
+          // Add to MTD if current month
+          if (month === currentMonthName) {
+            mtdData.data[0] = value;
+            mtdData.total = value;
+          }
+        }
+        
+        // Add to 2024 data if it's from 2024
+        if (year === 2024) {
+          // Find month index (Jan=0, Feb=1, etc)
+          const monthIndex = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].indexOf(month);
+          if (monthIndex !== -1) {
+            year2024Data.data[monthIndex] = value;
+            year2024Data.total += value;
+          }
+        }
+      }
       
       // Format the data for the chart component
       // The RevenueChart component expects data in a specific format with labels array and data array
       const formattedChartData = {
-        '6M': {
-          labels: monthlyData.labels,
-          data: monthlyData.data,
-          total: monthlyData.total
-        },
-        'ALL': {
-          labels: monthlyData.labels,
-          data: monthlyData.data,
-          total: monthlyData.total
-        },
-        // Add other periods with empty data to avoid errors
-        '1W': { data: [], total: 0 },
-        '1M': { data: [], total: 0 },
-        '3M': { data: [], total: 0 },
-        '1Y': { data: [], total: 0 }
+        '6M': sixMonthsData,
+        'YTD': ytdData,
+        'MTD': mtdData,
+        '2024': year2024Data,
+        'ALL': sixMonthsData,
+        // Keep 1W, 1M, 3M, 1Y with empty data for backward compatibility
+        '1W': { labels: [], data: [], years: [], total: 0 },
+        '1M': { labels: [], data: [], years: [], total: 0 },
+        '3M': { labels: [], data: [], years: [], total: 0 },
+        '1Y': { labels: [], data: [], years: [], total: 0 }
       };
       
       setChartData(formattedChartData);
       console.log('Chart data updated with direct API data:', {
         labels: monthlyData.labels,
+        years: monthlyData.years,
         values: monthlyData.data,
-        total: monthlyData.total
+        total: monthlyData.total,
+        ytdTotal: ytdData.total,
+        year2024Total: year2024Data.total
       });
       
     } catch (error) {

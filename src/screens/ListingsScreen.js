@@ -290,6 +290,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: theme.spacing.lg,
+    paddingBottom: 90,
   },
   skeletonContainer: {
     padding: theme.spacing.lg,

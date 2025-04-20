@@ -44,7 +44,7 @@ const SummaryCard = ({ title, value, isCount, color }) => {
 };
 
 const ReservationsScreen = ({ navigation }) => {
-  const { reservations: initialReservations, listings, refreshData, isLoading: authLoading } = useAuth();
+  const { listings, refreshData, isLoading: authLoading } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [filteredReservations, setFilteredReservations] = useState([]);
@@ -205,15 +205,6 @@ const ReservationsScreen = ({ navigation }) => {
     // Cleanup the timeout if the effect runs again before it fires
     return () => clearTimeout(timeoutId);
   }, [selectedListing, startDate, endDate, listings]);
-  
-  // Initialize with all reservations
-  useEffect(() => {
-    if (initialReservations && !filteredReservations.length) {
-      setFilteredReservations(initialReservations.filter(res => 
-        VALID_STATUSES.includes(res.status)
-      ));
-    }
-  }, [initialReservations]);
 
   const totalBookings = filteredReservations.length;
   
@@ -436,6 +427,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flexGrow: 1,
+    paddingBottom: 90,
   },
   loadingContainer: {
     flex: 1,

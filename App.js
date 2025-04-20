@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavigationContainer, useNavigation } from '@react-navigation/native';
+import { NavigationContainer, useNavigation, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
@@ -16,6 +16,7 @@ import {
   LogBox,
   Animated
 } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { theme } from './src/theme';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
@@ -85,75 +86,98 @@ Ionicons.loadFont()
   .catch(error => console.error('Error loading Ionicons font', error));
 
 const MainTabs = () => (
-  <Tab.Navigator
-    screenOptions={{
-      tabBarStyle: {
-        backgroundColor: theme.colors.surface,
-        borderTopColor: theme.colors.card.border,
-        borderTopWidth: 1,
-        paddingBottom: 12,
-        paddingTop: 8,
-        height: 64,
-      },
-      tabBarActiveTintColor: theme.colors.primary,
-      tabBarInactiveTintColor: theme.colors.text.secondary,
-      headerStyle: {
-        backgroundColor: theme.colors.surface,
-      },
-      headerTintColor: theme.colors.text.primary,
-      headerTitleStyle: theme.typography.h2,
-      contentStyle: {
-        backgroundColor: theme.colors.background,
-      },
-      headerShown: false,
-      headerTitleAlign: 'center',
-      tabBarShowLabel: true,
-      tabBarLabelStyle: {
-        fontSize: 12,
-        marginBottom: 6,
-      },
-      animation: 'none',
-      animationEnabled: false,
-    }}
-  >
-    <Tab.Screen
-      name="Home"
-      component={HomeScreen}
-      options={{
-        tabBarIcon: ({ color, size }) => (
-          <Ionicons name="home-outline" size={24} color={color} />
-        ),
-        title: 'Dashboard',
+  <View style={{flex: 1, backgroundColor: '#000000'}}>
+    <Tab.Navigator
+      screenOptions={{
+        tabBarStyle: {
+          backgroundColor: '#000000',
+          borderTopColor: 'rgba(182, 148, 76, 0.5)',
+          borderTopWidth: 1,
+          paddingBottom: 12,
+          paddingTop: 8,
+          height: 64,
+          position: 'relative',
+          elevation: 0,
+          shadowOpacity: 0,
+          opacity: 1,
+          ...(Platform.OS === 'ios' ? {
+            backgroundColor: '#000000',
+            borderTopColor: 'rgba(182, 148, 76, 0.5)',
+            borderTopWidth: 1,
+            shadowColor: 'rgba(182, 148, 76, 0.25)',
+            shadowOffset: { height: -1, width: 0 },
+            shadowOpacity: 0.3,
+            shadowRadius: 0,
+          } : {
+            borderTopWidth: 1,
+            borderTopColor: 'rgba(182, 148, 76, 0.5)',
+          }),
+        },
+        tabBarItemStyle: {
+          backgroundColor: '#000000',
+        },
+        tabBarActiveTintColor: 'rgba(182, 148, 76, 0.7)',
+        tabBarInactiveTintColor: 'rgba(255, 255, 255, 0.4)',
+        headerStyle: {
+          backgroundColor: theme.colors.surface,
+        },
+        headerTintColor: theme.colors.text.primary,
+        headerTitleStyle: theme.typography.h2,
+        contentStyle: {
+          backgroundColor: theme.colors.background,
+        },
+        headerShown: false,
+        headerTitleAlign: 'center',
+        tabBarShowLabel: true,
+        tabBarLabelStyle: {
+          fontSize: 11,
+          marginBottom: 6,
+          fontWeight: '400',
+          letterSpacing: 0.4,
+        },
+        animation: 'none',
+        animationEnabled: false,
       }}
-    />
-    <Tab.Screen
-      name="Listings"
-      component={ListingsScreen}
-      options={{
-        tabBarIcon: ({ color, size }) => (
-          <Ionicons name="list-outline" size={24} color={color} />
-        ),
-      }}
-    />
-    <Tab.Screen
-      name="Reservations"
-      component={ReservationsScreen}
-      options={{
-        tabBarIcon: ({ color, size }) => (
-          <Ionicons name="calendar-outline" size={24} color={color} />
-        ),
-      }}
-    />
-    <Tab.Screen
-      name="EarnMore"
-      component={EarnMoreScreen}
-      options={{
-        tabBarIcon: ({ color, size }) => (
-          <Ionicons name="cash-outline" size={24} color={color} />
-        ),
-      }}
-    />
-  </Tab.Navigator>
+    >
+      <Tab.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="home" size={24} color={color} style={{fontWeight: '300'}} />
+          ),
+          title: 'Dashboard',
+        }}
+      />
+      <Tab.Screen
+        name="Listings"
+        component={ListingsScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="list" size={24} color={color} style={{fontWeight: '300'}} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Reservations"
+        component={ReservationsScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="calendar" size={24} color={color} style={{fontWeight: '300'}} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Earn More"
+        component={EarnMoreScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="wallet" size={24} color={color} style={{fontWeight: '300'}} />
+          ),
+        }}
+      />
+    </Tab.Navigator>
+  </View>
 );
 
 const Navigation = () => {
@@ -255,15 +279,30 @@ const Navigation = () => {
 };
 
 const App = () => {
+  const MyTheme = {
+    ...DefaultTheme,
+    colors: {
+      ...DefaultTheme.colors,
+      background: '#000000',
+      card: '#000000',
+      border: theme.colors.primary,
+      text: '#FFFFFF',
+    },
+  };
+
   return (
     <AuthProvider>
       <ConsultationProvider>
-      <NavigationContainer>
-        <StatusBar barStyle="light-content" backgroundColor={theme.colors.surface} />
-        <SafeAreaView style={styles.container}>
-          <Navigation />
-        </SafeAreaView>
-      </NavigationContainer>
+      <SafeAreaProvider style={{backgroundColor: '#000000'}}>
+        <View style={{flex: 1, backgroundColor: '#000000'}}>
+          <NavigationContainer theme={MyTheme}>
+            <StatusBar barStyle="light-content" backgroundColor="#000000" />
+            <SafeAreaView style={styles.container} edges={['top']}>
+              <Navigation />
+            </SafeAreaView>
+          </NavigationContainer>
+        </View>
+      </SafeAreaProvider>
       </ConsultationProvider>
     </AuthProvider>
   );
@@ -272,7 +311,7 @@ const App = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background,
+    backgroundColor: '#000000',
   },
   loadingContainer: {
     height: 300,

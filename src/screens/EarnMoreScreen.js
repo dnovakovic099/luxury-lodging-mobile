@@ -228,7 +228,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 24,
     alignItems: 'center',
-    paddingBottom: 200,
+    paddingBottom: 120,
   },
   consultButton: {
     backgroundColor: theme.colors.primary,
