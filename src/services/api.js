@@ -122,7 +122,8 @@ export const fetchReservations = async (params = {}) => {
     // Use the provided limit or default to a high limit
     const apiParams = { 
       ...params,
-      limit: params.limit || 10000 // Use provided limit or default to 10000
+      limit: params.limit || 10000, // Use provided limit or default to 10000
+      sortOrder: params.sortBy || 'arrivalDate', // Default sort by arrival date
     };
     
     if (params.listingMapIds) {
@@ -168,6 +169,7 @@ export const fetchReservations = async (params = {}) => {
       
     const url = `/reservations${queryParams ? `?${queryParams}` : ''}`;
     const response = await makeServerRequest(url);
+    console.log("GGGG - Reservations response:", url, queryParams);
     
     let reservations = [];
     let meta = { 

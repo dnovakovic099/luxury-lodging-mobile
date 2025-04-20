@@ -19,7 +19,7 @@ import { getListingFinancials, getMonthlyRevenueData } from '../services/api';
 import UpcomingReservations from '../components/UpcomingReservations';
 
 const HomeScreen = ({ navigation }) => {
-  const { listings, upcomingReservations, refreshData, isLoading: authLoading, signOut, user, fetchUpcomingReservations } = useAuth();
+  const { listings, upcomingReservations, refreshData, isLoading: authLoading, signOut, user, fetchUpcomingReservations, upcomingReservationsLoading } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [futureRevenue, setFutureRevenue] = useState(0);
@@ -297,26 +297,14 @@ const HomeScreen = ({ navigation }) => {
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       loadDashboardData();
-      // Also refresh upcoming reservations when screen is focused
-      fetchUpcomingReservations();
     });
     return unsubscribe;
-  }, [navigation, fetchUpcomingReservations]);
+  }, [navigation]);
   
   // Initial data load
   useEffect(() => {
     loadDashboardData();
-    
-    // Force refresh of auth data including upcoming reservations
     fetchUpcomingReservations();
-    
-    // Add a second refresh with a delay to make sure we get the latest data
-    const refreshTimer = setTimeout(() => {
-      console.log('Performing delayed refresh of upcoming reservations');
-      fetchUpcomingReservations();
-    }, 3000);
-    
-    return () => clearTimeout(refreshTimer);
   }, []);
   
   const loadDashboardData = async () => {
@@ -591,7 +579,7 @@ const HomeScreen = ({ navigation }) => {
 
         <UpcomingReservations
           reservations={upcomingReservations}
-          loading={loading || authLoading}
+          loading={upcomingReservationsLoading || authLoading}
         />
         
         {renderChart()}

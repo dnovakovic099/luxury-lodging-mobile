@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useEffect, useRef } from 'r
 import {authenticateUser, fetchListings, getReservationsWithFinancialData} from '../services/api';
 import * as Keychain from 'react-native-keychain';
 import {jwtDecode} from 'jwt-decode';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AuthContext = createContext(null);
 
@@ -17,6 +18,7 @@ export function AuthProvider({ children }) {
   const [userData, setUserData] = useState(null);
   const [listings, setListings] = useState(null);
   const [upcomingReservations, setUpcomingReservations] = useState(null);
+  const [upcomingReservationsLoading, setUpcomingReservationsLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
   
@@ -107,17 +109,30 @@ export function AuthProvider({ children }) {
   // Fetch only upcoming reservations (limit 3) for quick display on HomeScreen
   const fetchUpcomingReservations = async () => {
     if (upcomingReservationsFetchInProgress.current || !listings || listings.length === 0) {
-      console.log(`[AUTH DEBUG] Skipping fetchUpcomingReservations - inProgress: ${upcomingReservationsFetchInProgress.current}, listings: ${listings?.length || 0}`);
+      console.log("DEBUG - Skipping fetch: ", {
+        inProgress: upcomingReservationsFetchInProgress.current,
+        hasListings: !!listings && listings.length > 0
+      });
+      if (upcomingReservationsLoading) setUpcomingReservationsLoading(false);
       return;
     }
     
-    console.log(`[AUTH DEBUG] ======== START UPCOMING RESERVATIONS FETCH ========`);
     upcomingReservationsFetchInProgress.current = true;
+    setUpcomingReservationsLoading(true);
     
     try {
+      // Format dates for API - yesterday and 60 days from today
       const today = new Date();
-      const sixMonthsFromNow = new Date(today);
-      sixMonthsFromNow.setMonth(today.getMonth() + 6);
+      
+      // Set hours to beginning of day to avoid timezone issues
+      today.setHours(0, 0, 0, 0);
+      
+      // Create yesterday date that's exactly 1 full day before today
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1); // Subtract 1 day to include today's reservations
+      
+      const sixtyDaysFromNow = new Date(today);
+      sixtyDaysFromNow.setDate(today.getDate() + 60);
       
       const formatDate = (date) => {
         const year = date.getFullYear();
@@ -126,185 +141,118 @@ export function AuthProvider({ children }) {
         return `${year}-${month}-${day}`;
       };
       
-      const todayStr = formatDate(today);
-      const futureDateStr = formatDate(sixMonthsFromNow);
+      // Revert to using yesterday's date
+      const fromDateStr = formatDate(yesterday);
+      const toDateStr = formatDate(sixtyDaysFromNow);
       
-      // Get all listing IDs
+      console.log("DEBUG - API Date Range:", { 
+        from: fromDateStr, 
+        to: toDateStr,
+        yesterdayRaw: yesterday.toString(),
+        todayRaw: today.toString()
+      });
+      
+      // Get all listing IDs for API calls
       const listingIds = listings.map(listing => parseInt(listing.id)).filter(id => !isNaN(id));
-      console.log(`[AUTH DEBUG] Available listings (${listingIds.length}): ${JSON.stringify(listings.map(l => ({id: l.id, name: l.name})))}`);
+      console.log("DEBUG - Fetch params: ", {
+        listingCount: listingIds.length,
+        dateRange: `${fromDateStr} to ${toDateStr}`
+      });
       
-      // Create an array to hold all upcoming reservations
-      let allUpcomingReservations = [];
+      // Use efficient concurrent fetching, one reservation per listing
+      console.log("DEBUG - Starting concurrent per-listing fetch");
       
-      // Attempting individual listing fetch first, which seems more reliable
-      console.log(`[AUTH DEBUG] Fetching reservations for each listing individually...`);
-      
-      for (const listingId of listingIds) {
-        const listing = listings.find(l => parseInt(l.id) === listingId);
-        console.log(`[AUTH DEBUG] Processing listing: ${listing?.name || 'Unknown'} (ID: ${listingId})`);
-        
-        const singleListingParams = {
-          listingId: listingId, // Use listingId instead of listingMapIds for single listing
-          fromDate: todayStr,
-          toDate: futureDateStr,
+      // Create array of fetch promises for each listing
+      const fetchPromises = listingIds.map(listingId => {
+        const params = {
+          listingId: listingId,
+          fromDate: fromDateStr,
+          toDate: toDateStr,
           dateType: 'arrivalDate',
           statuses: ['confirmed', 'new', 'modified'],
           includeOwnerStays: true,
           sortBy: 'arrivalDate',
           sortDirection: 'asc',
-          limit: 1 // Set limit to 1 to fetch only the next upcoming reservation
+          limit: 1 // We only need the next upcoming reservation per listing
         };
         
-        try {
-          console.log(`[AUTH DEBUG] API call for listing ${listingId} with params:`, JSON.stringify(singleListingParams));
-          const singleResult = await getReservationsWithFinancialData(singleListingParams);
-          
-          console.log(`[AUTH DEBUG] API response structure for listing ${listingId}:`, 
-            Object.keys(singleResult || {}).join(', '), 
-            `reservations: ${Array.isArray(singleResult?.reservations) ? singleResult.reservations.length : 'none'}`
-          );
-          
-          if (singleResult?.reservations && Array.isArray(singleResult.reservations)) {
-            const reservationsCount = singleResult.reservations.length;
-            console.log(`[AUTH DEBUG] Received ${reservationsCount} reservations for listing ${listingId} (${listing?.name || 'Unknown'})`);
-            
-            if (reservationsCount > 0) {
-              console.log(`[AUTH DEBUG] Sample reservation for ${listingId}:`, JSON.stringify({
-                id: singleResult.reservations[0].id,
-                property: singleResult.reservations[0].listingName || singleResult.reservations[0].property?.name,
-                arrival: singleResult.reservations[0].arrivalDate || singleResult.reservations[0].checkIn
-              }));
+        // Log the exact parameters for each API call for the first listing
+        if (listingId === listingIds[0]) {
+          console.log("DEBUG - EXACT API PARAMETERS:", JSON.stringify(params, null, 2));
+        }
+        
+        return getReservationsWithFinancialData(params)
+          .then(result => {
+            // Log the actual result for the first listing to check what's coming back
+            if (listingId === listingIds[0] && result?.reservations?.length > 0) {
+              console.log("DEBUG - FIRST LISTING RESULTS:", 
+                result.reservations.map(r => ({
+                  id: r.id,
+                  checkIn: r.checkIn || r.arrivalDate,
+                  status: r.status,
+                }))
+              );
             }
             
-            // Find the listing name
-            const listingName = listing?.name || 'Unknown Property';
-            
-            // Add listing metadata to each reservation if missing
-            const enhancedReservations = singleResult.reservations.map(res => {
-              const enhanced = {
-                ...res,
-                listingId: res.listingId || listingId,
-                listingMapId: res.listingMapId || listingId,
-                listingName: res.listingName || listingName,
-                property: res.property || { name: listingName }
-              };
-              
-              // Log to confirm the enhancement worked
-              if (!res.listingName && enhanced.listingName) {
-                console.log(`[AUTH DEBUG] Enhanced reservation ${res.id} with listingName: ${enhanced.listingName}`);
-              }
-              
-              return enhanced;
-            });
-            
-            allUpcomingReservations.push(...enhancedReservations);
-          }
-        } catch (error) {
-          console.error(`[AUTH DEBUG] Error fetching reservations for listing ${listingId}:`, error);
-        }
-      }
+            if (result?.reservations && Array.isArray(result.reservations) && result.reservations.length > 0) {
+              return result.reservations;
+            }
+            return [];
+          })
+          .catch(error => {
+            console.error(`Error fetching for listing ${listingId}:`, error);
+            return [];
+          });
+      });
       
-      console.log(`[AUTH DEBUG] Total reservations collected from individual fetches: ${allUpcomingReservations.length}`);
+      // Wait for all requests to complete in parallel
+      console.log("DEBUG - Sending concurrent requests for", listingIds.length, "listings");
+      const resultsArray = await Promise.all(fetchPromises);
       
-      // If we didn't get any reservations from individual fetches, try the bulk fetch
-      if (allUpcomingReservations.length === 0) {
-        console.log(`[AUTH DEBUG] No reservations from individual fetches, trying bulk fetch...`);
+      // Flatten the array of arrays
+      let allUpcomingReservations = resultsArray.flat();
+      console.log("DEBUG - Got", allUpcomingReservations.length, "reservations from per-listing calls");
+      
+      // Process the reservations to add listing names if missing
+      allUpcomingReservations = allUpcomingReservations.map(res => {
+        const listingId = res.listingId || res.listingMapId;
+        const currentListing = listings.find(l => parseInt(l.id) === parseInt(listingId));
+        const listingName = currentListing?.name || 'Unknown Property';
+        console.log({ listingName, guestName: res.guestName, startDate: res.checkIn || res.arrivalDate })
         
-        const bulkParams = {
-          listingMapIds: listingIds,
-          fromDate: todayStr,
-          toDate: futureDateStr,
-          dateType: 'arrivalDate',
-          statuses: ['confirmed', 'new', 'modified'],
-          includeOwnerStays: true,
-          sortBy: 'arrivalDate',
-          sortDirection: 'asc',
-          limit: listingIds.length // Set limit to match the number of listings
+        return {
+          ...res,
+          listingId: listingId,
+          listingMapId: listingId,
+          listingName: res.listingName || listingName,
+          property: res.property || { name: listingName }
         };
-        
-        console.log(`[AUTH DEBUG] Attempting bulk fetch with params:`, JSON.stringify(bulkParams));
-        const bulkResult = await getReservationsWithFinancialData(bulkParams);
-        
-        console.log(`[AUTH DEBUG] Bulk API response:`, 
-          Object.keys(bulkResult || {}).join(', '), 
-          `reservations: ${Array.isArray(bulkResult?.reservations) ? bulkResult.reservations.length : 'none'}`
-        );
-        
-        if (bulkResult?.reservations && Array.isArray(bulkResult.reservations) && bulkResult.reservations.length > 0) {
-          console.log(`[AUTH DEBUG] Bulk fetch succeeded with ${bulkResult.reservations.length} reservations`);
-          
-          // Check listing distribution in bulk results
-          const bulkListingIds = [...new Set(bulkResult.reservations.map(r => r.listingId || r.listingMapId))];
-          console.log(`[AUTH DEBUG] Listings in bulk results (${bulkListingIds.length}): ${bulkListingIds.join(', ')}`);
-          
-          allUpcomingReservations = bulkResult.reservations;
-        }
-      }
+      });
+      
+      console.log("DEBUG - Processed reservations:", allUpcomingReservations.length);
       
       // Filter to get only upcoming reservations
       const today2 = new Date();
       today2.setHours(0, 0, 0, 0); // Reset to beginning of day
       
-      console.log(`[AUTH DEBUG] Filtering ${allUpcomingReservations.length} reservations for upcoming dates...`);
-      
-      const upcomingReservations = allUpcomingReservations
-        .filter(res => {
-          try {
-            const checkInDate = res.checkIn || res.arrivalDate;
-            if (!checkInDate) return false;
-            
-            const arrivalDate = new Date(checkInDate);
-            const isUpcoming = arrivalDate >= today2;
-            
-            if (!isUpcoming) {
-              console.log(`[AUTH DEBUG] Filtering out past reservation: ${res.id} with date ${checkInDate}`);
-            }
-            
-            return isUpcoming;
-          } catch (e) {
-            return false;
-          }
-        })
-        .sort((a, b) => {
-          const dateA = new Date(a.checkIn || a.arrivalDate);
-          const dateB = new Date(b.checkIn || b.arrivalDate);
-          return dateA - dateB;
-        });
-      
-      console.log(`[AUTH DEBUG] After date filtering: ${upcomingReservations.length} upcoming reservations`);
-      
       // Take only first 3
-      const finalReservations = upcomingReservations.slice(0, 3);
-      console.log(`[AUTH DEBUG] Final upcoming reservations count: ${finalReservations.length}`);
-      
-      // Log unique listings in the final result
+      const finalReservations = allUpcomingReservations.slice(0, 3);
+      console.log("DEBUG - Final reservations:", finalReservations.length);
       if (finalReservations.length > 0) {
-        const uniqueListingIds = [...new Set(finalReservations.map(r => r.listingId || r.listingMapId))];
-        const uniqueListingNames = [...new Set(finalReservations.map(r => r.listingName || r.property?.name))];
-        
-        console.log(`[AUTH DEBUG] Unique listing IDs in final reservations: ${uniqueListingIds.join(', ')}`);
-        console.log(`[AUTH DEBUG] Unique listing NAMES in final reservations: ${uniqueListingNames.join(', ')}`);
-        
-        // Log details about each reservation
-        finalReservations.forEach((res, idx) => {
-          console.log(`[AUTH DEBUG] Final reservation ${idx+1}:`, JSON.stringify({
-            id: res.id,
-            listingId: res.listingId,
-            listingName: res.listingName || res.property?.name,
-            arrivalDate: res.checkIn || res.arrivalDate,
-            guest: res.guest?.name
-          }));
+        console.log("DEBUG - First reservation sample:", {
+          id: finalReservations[0].id,
+          listing: finalReservations[0].listingName,
+          date: finalReservations[0].checkIn || finalReservations[0].arrivalDate
         });
       }
       
-      console.log(`[AUTH DEBUG] Setting upcomingReservations state with ${finalReservations.length} reservations`);
       setUpcomingReservations(finalReservations);
-      console.log(`[AUTH DEBUG] ======== END UPCOMING RESERVATIONS FETCH ========`);
     } catch (error) {
-      console.error('[AUTH DEBUG] Error fetching upcoming reservations:', error);
+      console.error('Error fetching upcoming reservations:', error);
       setUpcomingReservations([]);
     } finally {
       upcomingReservationsFetchInProgress.current = false;
+      setUpcomingReservationsLoading(false);
     }
   };
   
@@ -482,6 +430,7 @@ export function AuthProvider({ children }) {
       errorMessage,
       refreshData,
       fetchUpcomingReservations,
+      upcomingReservationsLoading,
     }}>
       {children}
     </AuthContext.Provider>

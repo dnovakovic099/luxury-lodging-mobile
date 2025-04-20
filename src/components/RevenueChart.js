@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState, memo, useMemo } from 'react';
-import { View, Text, StyleSheet, Platform, Animated, TouchableOpacity, ScrollView, Modal, Alert, ActivityIndicator } from 'react-native';
-import { theme } from '../theme';
+import { View, Text, StyleSheet, Platform, Animated, TouchableOpacity, ActivityIndicator } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { formatCurrency } from '../utils/formatters';
 
@@ -646,7 +645,7 @@ const RevenueChart = ({ data, loading, onFetchData }) => {
               </View>
               
               {/* Month label below bar - MOVED CLOSER TO AXIS */}
-              <View style={[styles.monthLabelContainer, { bottom: -5 }]}>  {/* Changed from -10 to -5 to move even closer */}
+              <View style={[styles.monthLabelContainer, { bottom: -5 }]}>
                 <Text style={[
                   styles.monthLabelText,
                   barCount >= 12 ? { fontSize: 9 } : barCount > 9 ? { fontSize: 10 } : {}
@@ -676,22 +675,22 @@ const RevenueChart = ({ data, loading, onFetchData }) => {
   // Memoize month labels to avoid rerendering
   const monthLabelsComponent = React.useMemo(() => (
     <View style={[
-      styles.monthsRow,
-      viewMode === 'MTD' && styles.singleMonthRow,
-      viewMode === 'YTD' && styles.ytdMonthRow,
-      viewMode === '2024' && styles.fullYearMonthRow
+      styles.monthsRow || {}, // Added fallback empty object in case style is undefined
+      viewMode === 'MTD' && (styles.singleMonthRow || {}),
+      viewMode === 'YTD' && (styles.ytdMonthRow || {}),
+      viewMode === '2024' && (styles.fullYearMonthRow || {})
     ]}>
       {labels.map((month, index) => (
         <View 
           key={`month-${index}`} 
           style={[
-            styles.monthLabel,
-            viewMode === 'MTD' && styles.singleMonthLabel,
-            viewMode === 'YTD' && styles.ytdMonthLabel,
-            viewMode === '2024' && styles.fullYearMonthLabel
+            styles.monthLabel || {}, // Added fallback empty object
+            viewMode === 'MTD' && (styles.singleMonthLabel || {}),
+            viewMode === 'YTD' && (styles.ytdMonthLabel || {}),
+            viewMode === '2024' && (styles.fullYearMonthLabel || {})
           ]}
         >
-          <Text style={styles.monthText}>{month}</Text>
+          <Text style={styles.monthText || {}}>{month}</Text>
         </View>
       ))}
     </View>
@@ -808,7 +807,8 @@ const RevenueChart = ({ data, loading, onFetchData }) => {
                           marginLeft: 3,
                           marginRight: 4,
                         }}>
-                          {isTop ? '' : formatAxisCurrency(value)} {/* Don't display top label at all */}
+                          {/* Don't display top label at all */}
+                          {isTop ? '' : formatAxisCurrency(value)}
                         </Text>
                       </View>
                       {/* Custom dotted line implementation */}
