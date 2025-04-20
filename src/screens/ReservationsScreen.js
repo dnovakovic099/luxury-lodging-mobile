@@ -299,6 +299,25 @@ const ReservationsScreen = ({ navigation }) => {
         />
       }
     >
+      <View style={styles.headerContainer}>
+        <Text style={styles.headerTitle}>Reservations</Text>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity 
+            style={styles.iconButton}
+            onPress={() => setShowFilters(!showFilters)}
+          >
+            <Icon name="options-outline" size={24} color={theme.colors.text.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.iconButton, styles.calendarButton]}
+            onPress={() => navigation.navigate('Calendar')}
+          >
+            <Icon name="calendar-outline" size={24} color="#FFFFFF" />
+            <Text style={styles.calendarButtonText}>Calendar</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+      
       {/* Filters Section */}
       <View style={styles.filtersContainer}>
         <TouchableOpacity 
@@ -429,55 +448,40 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 90,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  headerContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.background,
-  },
-  loadingText: {
-    marginTop: theme.spacing.md,
-    color: theme.colors.text.secondary,
-  },
-  tableContainer: {
+    justifyContent: 'space-between',
     paddingHorizontal: theme.spacing.md,
     paddingTop: theme.spacing.md,
+    paddingBottom: theme.spacing.sm,
   },
-  dashboardContainer: {
-    paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.lg,
-  },
-  dashboardCards: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: theme.spacing.sm,
-  },
-  dashboardCard: {
-    backgroundColor: theme.colors.card.background,
-    borderRadius: theme.borderRadius.lg,
-    padding: theme.spacing.md,
-    borderWidth: 1,
-    borderColor: theme.colors.card.border,
-    width: '48%',
-    marginBottom: theme.spacing.sm,
-    shadowColor: theme.colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  dashboardCardLabel: {
-    fontSize: 12,
-    color: theme.colors.text.secondary,
-    marginBottom: 4,
-  },
-  dashboardCardValue: {
-    fontSize: 18,
+  headerTitle: {
+    fontSize: 24,
     fontWeight: '600',
-    color: theme.colors.primary,
+    color: theme.colors.text.primary,
   },
-  // New styles for filters
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconButton: {
+    padding: theme.spacing.sm,
+    marginLeft: theme.spacing.sm,
+  },
+  calendarButton: {
+    backgroundColor: theme.colors.primary,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  calendarButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '500',
+    fontSize: 14,
+    marginLeft: 4,
+  },
   filtersContainer: {
     marginHorizontal: theme.spacing.md,
     marginTop: theme.spacing.md,
@@ -553,32 +557,53 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: theme.colors.text.secondary,
   },
-  summaryContainer: {
+  dashboardContainer: {
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.lg,
+  },
+  dashboardCards: {
     flexDirection: 'row',
-    padding: 12,
-    paddingTop: 0,
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
   },
-  summaryCard: {
-    flex: 1,
-    backgroundColor: '#1F1F1F',
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 4,
-    shadowColor: '#000',
+  dashboardCard: {
+    backgroundColor: theme.colors.card.background,
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.card.border,
+    width: '48%',
+    marginBottom: theme.spacing.sm,
+    shadowColor: theme.colors.shadow,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 3,
+    elevation: 2,
   },
-  summaryTitle: {
-    fontSize: 14,
-    color: '#999999',
-    marginBottom: 8,
+  dashboardCardLabel: {
+    fontSize: 12,
+    color: theme.colors.text.secondary,
+    marginBottom: 4,
   },
-  summaryValue: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#B69D74',
+  dashboardCardValue: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.colors.primary,
+  },
+  tableContainer: {
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.md,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: theme.colors.background,
+  },
+  loadingText: {
+    marginTop: theme.spacing.md,
+    color: theme.colors.text.secondary,
   },
   emptyStateContainer: {
     flex: 1,

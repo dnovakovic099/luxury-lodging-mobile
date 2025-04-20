@@ -74,6 +74,7 @@ import ListingDetailScreen from './src/screens/ListingDetailScreen';
 import ReservationsScreen from './src/screens/ReservationsScreen';
 import SupportScreen from './src/screens/SupportScreen';
 import EarnMoreScreen from './src/screens/EarnMoreScreen';
+import CalendarScreen from './src/screens/CalendarScreen';
 import {ConsultationProvider} from './src/context/ConsultationContext';
 
 // No need for separate SignOutScreen - we'll add a button to HomeScreen instead
@@ -160,7 +161,7 @@ const MainTabs = () => (
       />
       <Tab.Screen
         name="Reservations"
-        component={ReservationsScreen}
+        component={CalendarScreen}
         options={{
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="calendar" size={24} color={color} style={{fontWeight: '300'}} />
@@ -248,10 +249,32 @@ const Navigation = () => {
                 backgroundColor: theme.colors.surface,
               },
               headerTintColor: theme.colors.primary,
-              headerTitleStyle: theme.typography.h2,
               headerBackTitleVisible: true,
               headerBackTitle: "Properties",
               headerTitle: "",
+              animation: 'none',
+              animationEnabled: false,
+            }}
+          />
+          <Stack.Screen
+            name="Calendar"
+            component={CalendarScreen}
+            options={{
+              headerShown: false,
+              animation: 'none',
+              animationEnabled: false,
+            }}
+          />
+          <Stack.Screen
+            name="ReservationsList"
+            component={ReservationsScreen}
+            options={{
+              headerShown: true,
+              headerStyle: {
+                backgroundColor: theme.colors.surface,
+              },
+              headerTintColor: theme.colors.text.primary,
+              headerTitle: "Reservations List",
               animation: 'none',
               animationEnabled: false,
             }}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Image } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { theme } from '../theme';
 
@@ -8,7 +8,8 @@ const PropertyPicker = ({
   onValueChange,
   properties = [],
   loading,
-  error 
+  error,
+  showSelectedImage = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   
@@ -26,13 +27,26 @@ const PropertyPicker = ({
         onPress={() => setIsOpen(true)}
         disabled={loading || properties.length === 0}
       >
-        <Text style={styles.buttonText}>
+        {showSelectedImage && selectedPropertyData?.image ? (
+          <Image 
+            source={{ uri: selectedPropertyData.image }} 
+            style={styles.selectedPropertyImage}
+            defaultSource={require('../assets/logo.png')}
+          />
+        ) : (
+          showSelectedImage && (
+            <View style={styles.propertyImagePlaceholder}>
+              <Icon name="home-outline" size={16} color="#666666" />
+            </View>
+          )
+        )}
+        <Text style={styles.buttonText} numberOfLines={1} ellipsizeMode="tail">
           {loading 
             ? "Loading properties..." 
             : selectedPropertyData?.name 
             || "Select a property"}
         </Text>
-        <Icon name="chevron-down" size={18} color={theme.colors.text.secondary} />
+        <Icon name="chevron-down" size={18} color="#000000" />
       </TouchableOpacity>
 
       <Modal
@@ -49,7 +63,7 @@ const PropertyPicker = ({
                 onPress={() => setIsOpen(false)}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Icon name="close" size={22} color={theme.colors.text.secondary} />
+                <Icon name="close" size={22} color="#000000" />
               </TouchableOpacity>
             </View>
 
@@ -63,6 +77,17 @@ const PropertyPicker = ({
                   ]}
                   onPress={() => handleSelect(property.id)}
                 >
+                  {property.image ? (
+                    <Image 
+                      source={{ uri: property.image }} 
+                      style={styles.propertyImage}
+                      defaultSource={require('../assets/logo.png')}
+                    />
+                  ) : (
+                    <View style={styles.propertyImagePlaceholder}>
+                      <Icon name="home-outline" size={16} color="#666666" />
+                    </View>
+                  )}
                   <Text style={[
                     styles.optionText,
                     selectedProperty === property.id && styles.selectedOptionText
@@ -70,7 +95,7 @@ const PropertyPicker = ({
                     {property.name}
                   </Text>
                   {selectedProperty === property.id && (
-                    <Icon name="checkmark-circle" size={18} color={theme.colors.primary} />
+                    <Icon name="checkmark-circle" size={18} color="#FF385C" />
                   )}
                 </TouchableOpacity>
               ))}
@@ -90,15 +115,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: theme.colors.surface,
-    borderRadius: 12,
-    padding: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 8,
     borderWidth: 1,
-    borderColor: theme.colors.card.border,
+    borderColor: '#E0E0E0',
+    paddingHorizontal: 12,
   },
   buttonText: {
     fontSize: 14,
-    color: theme.colors.text.primary,
+    color: '#000000',
+    fontWeight: '500',
+    flex: 1,
+    marginRight: 8,
+    marginLeft: 8,
+  },
+  selectedPropertyImage: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F5F5F5',
   },
   modalContainer: {
     flex: 1,
@@ -106,7 +142,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: theme.colors.surface,
+    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: '80%',
@@ -118,12 +154,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.card.border,
+    borderBottomColor: '#E0E0E0',
   },
   modalTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
-    color: theme.colors.text.primary,
+    color: '#000000',
   },
   optionsList: {
     padding: 12,
@@ -132,19 +168,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 12,
+    padding: 10,
     borderRadius: 8,
   },
   selectedOption: {
-    backgroundColor: `${theme.colors.primary}10`,
+    backgroundColor: 'rgba(255, 56, 92, 0.1)',
   },
   optionText: {
-    fontSize: 15,
-    color: theme.colors.text.primary,
+    fontSize: 14,
+    color: '#000000',
+    flex: 1,
+    marginLeft: 8,
   },
   selectedOptionText: {
-    color: theme.colors.primary,
+    color: '#FF385C',
     fontWeight: '500',
+  },
+  propertyImage: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F5F5F5',
+  },
+  propertyImagePlaceholder: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

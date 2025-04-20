@@ -16,11 +16,23 @@ let accessToken = null;
 const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
   try {
     const token = accessToken;
+    
+    // Debug authorization token
+    console.log('=== AUTH DEBUG ===');
+    console.log(`Endpoint: ${endpoint}`);
+    console.log(`Token available: ${token ? 'Yes' : 'No'}`);
+    if (!token) {
+      console.log('WARNING: No authorization token available for request');
+    }
+    
     const headers = {
       'Authorization': token ? `Bearer ${token}` : '',
       'Content-Type': 'application/json',
       'Cache-control': 'no-cache',
     };
+
+    // Debug headers
+    console.log('Request headers:', JSON.stringify(headers, null, 2));
 
     const options = {
       method,
@@ -39,29 +51,37 @@ const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
     
     try {
       options.signal = controller.signal;
+      console.log(`Making request to: ${url}`);
       const response = await fetch(url, options);
       clearTimeout(timeoutId);
+      
+      // Log response status
+      console.log(`Response status: ${response.status} ${response.statusText}`);
       
       const contentType = response.headers.get('content-type');
       const isJson = contentType && contentType.includes('application/json');
       
       if (!isJson) {
-        await response.text();
+        const text = await response.text();
+        console.log('Non-JSON response:', text);
         throw new Error(`Server returned non-JSON response: ${response.status}`);
       }
       
       if (response.status === 401) {
+        console.log('Authentication error: 401 Unauthorized');
         throw new Error('Your session has expired. Please login again.');
       }
 
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}));
+        console.log('Error response:', errorBody);
         throw new Error(`Server error: ${response.status} - ${errorBody.message || 'Unknown error'}`);
       }
 
       return await response.json();
     } catch (err) {
       clearTimeout(timeoutId);
+      console.log('Request error:', err.message);
       if (err.name === 'AbortError') {
         throw new Error('Request timed out. Please try again later.');
       }
@@ -77,6 +97,7 @@ const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
  */
 export const authenticateUser = async (email, password, setErrorMessage) => {
   try {
+    console.log('Attempting authentication for:', email);
     const response = await fetch(`${SERVER_BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: {
@@ -88,15 +109,18 @@ export const authenticateUser = async (email, password, setErrorMessage) => {
     if (response.ok) {
       const data = await response.json();
       accessToken = data.token;
+      console.log('Authentication successful, token received:', accessToken ? 'Yes' : 'No');
       return {
         email: email,
         accessToken: data.token,
       };
     } else {
+      console.log('Authentication failed with status:', response.status);
       setErrorMessage('Authentication failed');
       throw new Error('Authentication failed');
     }
   } catch (error) {
+    console.log('Authentication error:', error.message);
     setErrorMessage(error.message || 'Authentication error occurred');
     throw error;
   }
@@ -168,8 +192,27 @@ export const fetchReservations = async (params = {}) => {
       .join('&');
       
     const url = `/reservations${queryParams ? `?${queryParams}` : ''}`;
+    
+    // Log detailed information about the request
+    console.log("=== RESERVATION API REQUEST ===");
+    console.log(`Full URL: ${SERVER_BASE_URL}/api${url}`);
+    console.log("Original params:", JSON.stringify(params, null, 2));
+    console.log("Transformed params:", JSON.stringify(apiParams, null, 2));
+    
     const response = await makeServerRequest(url);
-    console.log("GGGG - Reservations response:", url, queryParams);
+    
+    // Log response summary
+    console.log("=== RESERVATION API RESPONSE ===");
+    console.log(`Total reservations: ${response?.reservations?.length || 0}`);
+    
+    if (response?.reservations?.length > 0) {
+      // Log a breakdown of statuses
+      const statusCounts = {};
+      response.reservations.forEach(res => {
+        statusCounts[res.status || 'unknown'] = (statusCounts[res.status || 'unknown'] || 0) + 1;
+      });
+      console.log("Status breakdown:", JSON.stringify(statusCounts, null, 2));
+    }
     
     let reservations = [];
     let meta = { 
@@ -234,7 +277,14 @@ export const getFinancialReport = async (params = {}) => {
       requestBody.reservationIds = params.reservationIds;
     }
     
+    console.log("=== FINANCIAL REPORT REQUEST ===");
+    console.log("URL: /finance/report/consolidated");
+    console.log("Request body:", JSON.stringify(requestBody, null, 2));
+    
     const response = await makeServerRequest('/finance/report/consolidated', 'POST', requestBody);
+    
+    console.log("=== FINANCIAL REPORT RESPONSE ===");
+    console.log(`Report rows: ${response?.result?.rows?.length || 0}`);
     
     return response;
   } catch (error) {
@@ -266,6 +316,9 @@ export const getReservationsWithFinancialData = async (params = {}) => {
         ...params,
         limit: params.limit || 10000  // Use provided limit or default to 10000
       };
+      
+      console.log("=== RESERVATIONS WITH FINANCIAL DATA REQUEST ===");
+      console.log("Request params:", JSON.stringify(enhancedParams, null, 2));
       
       let allReservations = [];
       let meta = { 

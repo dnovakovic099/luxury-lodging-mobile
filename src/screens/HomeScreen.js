@@ -526,34 +526,44 @@ const HomeScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Luxury Lodging Host</Text>
-        <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
-          <Ionicons name="log-out-outline" size={24} color={theme.colors.text.secondary} />
-        </TouchableOpacity>
-      </View>
-      
-      <RevenueSummary 
-        data={{
-          totalRevenue: totalRevenue,
-          futureRevenue: futureRevenue,
-          sharingRevenue: sharingRevenue
-        }}
-        loading={loading}
-        style={styles.revenueSummary}
-      />
-
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        style={styles.scrollView}
+        contentContainerStyle={styles.contentContainer}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            colors={[theme.colors.primary]}
             tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
           />
         }
       >
+        {/* TEST CALENDAR BUTTON */}
+        {/* <TouchableOpacity 
+          style={styles.calendarTestButton}
+          onPress={() => navigation.navigate('Calendar')}
+        >
+          <Ionicons name="calendar" size={24} color="#FFFFFF" />
+          <Text style={styles.calendarTestButtonText}>Open Calendar View</Text>
+        </TouchableOpacity> */}
+
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Luxury Lodging Host</Text>
+          <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
+            <Ionicons name="log-out-outline" size={24} color={theme.colors.text.secondary} />
+          </TouchableOpacity>
+        </View>
+        
+        <RevenueSummary 
+          data={{
+            totalRevenue: totalRevenue,
+            futureRevenue: futureRevenue,
+            sharingRevenue: sharingRevenue
+          }}
+          loading={loading}
+          style={styles.revenueSummary}
+        />
+
         {/* Debug revenue values being passed to RevenueSummary */}
         {console.log('Revenue Summary Data:', { 
           totalRevenue, 
@@ -617,7 +627,10 @@ const styles = StyleSheet.create({
   signOutButton: {
     padding: 8,
   },
-  scrollContent: {
+  scrollView: {
+    flex: 1,
+  },
+  contentContainer: {
     flexGrow: 1,
     paddingTop: 0,
     paddingBottom: 90,
@@ -634,6 +647,22 @@ const styles = StyleSheet.create({
     color: theme.colors.text.secondary,
     marginTop: 16,
     fontSize: 14,
+  },
+  calendarTestButton: {
+    backgroundColor: '#FF385C',
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    marginHorizontal: 16,
+    marginVertical: 16,
+  },
+  calendarTestButtonText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginLeft: 8,
   },
 });
 
