@@ -56,7 +56,6 @@ const SupportScreen = () => {
 
   const handleFormSubmit = async (formData) => {
     // Handle form submission
-    console.log('Form submitted:', formData);
     setShowForm(false); // Hide form after submission
     // Add success message to chat
     setMessages(prev => [...prev, {

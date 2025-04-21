@@ -121,49 +121,26 @@ const ReservationCard = ({ item }) => {
 const UpcomingReservations = ({ reservations = [], loading = false }) => {
   const navigation = useNavigation();
   
-  // Print out all reservations being received
-  React.useEffect(() => {
-    console.log(`[CARDS DEBUG] UpcomingReservations received ${reservations?.length || 0} reservations`);
-    
-    if (reservations && reservations.length > 0) {
-      // Check unique listings
-      const uniqueListings = [...new Set(reservations.map(r => r?.listingName || r?.property?.name || 'Unknown'))];
-      console.log(`[CARDS DEBUG] Unique properties in data: ${uniqueListings.join(', ')}`);
-      
-      // Log each reservation details
-      reservations.forEach((res, idx) => {
-        console.log(`[CARDS DEBUG] Reservation ${idx+1}:`, JSON.stringify({
-          id: res?.id,
-          listingId: res?.listingId || res?.listingMapId,
-          property: res?.listingName || res?.property?.name,
-          date: res?.checkIn || res?.arrivalDate,
-          guest: res?.guest?.name
-        }));
-      });
-    }
-  }, [reservations]);
-  
   // We don't need as much filtering since the data should already be filtered
   // in the AuthContext, but we'll still do a basic validation
   const displayReservations = React.useMemo(() => {
     if (!reservations || !Array.isArray(reservations) || reservations.length === 0) {
-      console.log('[CARDS DEBUG] No reservations data received');
       return [];
     }
-    
-    console.log(`[CARDS DEBUG] Processing ${reservations.length} pre-filtered reservations`);
-    
+        
     // Basic validation - just ensure the reservations have the data we need
     const validReservations = reservations.filter(res => {
       if (!res) return false;
-      const isValid = !!(res.id && (res.checkIn || res.arrivalDate));
-      if (!isValid) {
-        console.log(`[CARDS DEBUG] Invalid reservation data:`, JSON.stringify(res));
+      // Check if data is valid - ensure it has a valid ID (it will be the ID from the channel, not our internal ID)
+      const hasValidId = res.id || res.reservationId || res.airbnbListingId || res.confirmationCode;
+      
+      if (!hasValidId) {
+        // Remove debugging console log
+        return null;
       }
-      return isValid;
+      return true;
     });
     
-    console.log(`[CARDS DEBUG] After validation: ${validReservations.length} valid reservations`);
     return validReservations;
   }, [reservations]);
   
@@ -216,7 +193,6 @@ const UpcomingReservations = ({ reservations = [], loading = false }) => {
       </View>
       
       {displayReservations.map((item, index) => {
-        console.log(`[CARDS DEBUG] Rendering reservation ${index+1}: ${item?.listingName || item?.property?.name || 'Unknown'}`);
         return (
           <React.Fragment key={item?.id?.toString() || `reservation-${index}`}>
             {index > 0 && <View style={styles.separator} />}

@@ -17,22 +17,11 @@ const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
   try {
     const token = accessToken;
     
-    // Debug authorization token
-    console.log('=== AUTH DEBUG ===');
-    console.log(`Endpoint: ${endpoint}`);
-    console.log(`Token available: ${token ? 'Yes' : 'No'}`);
-    if (!token) {
-      console.log('WARNING: No authorization token available for request');
-    }
-    
     const headers = {
       'Authorization': token ? `Bearer ${token}` : '',
       'Content-Type': 'application/json',
       'Cache-control': 'no-cache',
     };
-
-    // Debug headers
-    console.log('Request headers:', JSON.stringify(headers, null, 2));
 
     const options = {
       method,
@@ -51,37 +40,29 @@ const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
     
     try {
       options.signal = controller.signal;
-      console.log(`Making request to: ${url}`);
       const response = await fetch(url, options);
       clearTimeout(timeoutId);
-      
-      // Log response status
-      console.log(`Response status: ${response.status} ${response.statusText}`);
       
       const contentType = response.headers.get('content-type');
       const isJson = contentType && contentType.includes('application/json');
       
       if (!isJson) {
         const text = await response.text();
-        console.log('Non-JSON response:', text);
         throw new Error(`Server returned non-JSON response: ${response.status}`);
       }
       
       if (response.status === 401) {
-        console.log('Authentication error: 401 Unauthorized');
         throw new Error('Your session has expired. Please login again.');
       }
 
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}));
-        console.log('Error response:', errorBody);
         throw new Error(`Server error: ${response.status} - ${errorBody.message || 'Unknown error'}`);
       }
 
       return await response.json();
     } catch (err) {
       clearTimeout(timeoutId);
-      console.log('Request error:', err.message);
       if (err.name === 'AbortError') {
         throw new Error('Request timed out. Please try again later.');
       }
@@ -97,7 +78,6 @@ const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
  */
 export const authenticateUser = async (email, password, setErrorMessage) => {
   try {
-    console.log('Attempting authentication for:', email);
     const response = await fetch(`${SERVER_BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: {
@@ -109,18 +89,15 @@ export const authenticateUser = async (email, password, setErrorMessage) => {
     if (response.ok) {
       const data = await response.json();
       accessToken = data.token;
-      console.log('Authentication successful, token received:', accessToken ? 'Yes' : 'No');
       return {
         email: email,
         accessToken: data.token,
       };
     } else {
-      console.log('Authentication failed with status:', response.status);
       setErrorMessage('Authentication failed');
       throw new Error('Authentication failed');
     }
   } catch (error) {
-    console.log('Authentication error:', error.message);
     setErrorMessage(error.message || 'Authentication error occurred');
     throw error;
   }
@@ -193,26 +170,7 @@ export const fetchReservations = async (params = {}) => {
       
     const url = `/reservations${queryParams ? `?${queryParams}` : ''}`;
     
-    // Log detailed information about the request
-    console.log("=== RESERVATION API REQUEST ===");
-    console.log(`Full URL: ${SERVER_BASE_URL}/api${url}`);
-    console.log("Original params:", JSON.stringify(params, null, 2));
-    console.log("Transformed params:", JSON.stringify(apiParams, null, 2));
-    
     const response = await makeServerRequest(url);
-    
-    // Log response summary
-    console.log("=== RESERVATION API RESPONSE ===");
-    console.log(`Total reservations: ${response?.reservations?.length || 0}`);
-    
-    if (response?.reservations?.length > 0) {
-      // Log a breakdown of statuses
-      const statusCounts = {};
-      response.reservations.forEach(res => {
-        statusCounts[res.status || 'unknown'] = (statusCounts[res.status || 'unknown'] || 0) + 1;
-      });
-      console.log("Status breakdown:", JSON.stringify(statusCounts, null, 2));
-    }
     
     let reservations = [];
     let meta = { 
@@ -232,7 +190,7 @@ export const fetchReservations = async (params = {}) => {
       reservations = response;
       meta.total = reservations.length;
     }
-    
+
     return { 
       reservations, 
       meta 
@@ -260,10 +218,14 @@ export const getFinancialReport = async (params = {}) => {
       limit: 10000
     };
     
+    // Handle listingMapIds parameter
     if (params.listingMapIds) {
       requestBody.listingMapIds = Array.isArray(params.listingMapIds) 
         ? params.listingMapIds 
         : [params.listingMapIds];
+    } else if (params.listingId) {
+      // Convert listingId to listingMapIds if needed
+      requestBody.listingMapIds = [params.listingId];
     }
     
     if (params.fromDate) requestBody.fromDate = params.fromDate;
@@ -277,17 +239,11 @@ export const getFinancialReport = async (params = {}) => {
       requestBody.reservationIds = params.reservationIds;
     }
     
-    console.log("=== FINANCIAL REPORT REQUEST ===");
-    console.log("URL: /finance/report/consolidated");
-    console.log("Request body:", JSON.stringify(requestBody, null, 2));
-    
     const response = await makeServerRequest('/finance/report/consolidated', 'POST', requestBody);
-    
-    console.log("=== FINANCIAL REPORT RESPONSE ===");
-    console.log(`Report rows: ${response?.result?.rows?.length || 0}`);
-    
+
     return response;
   } catch (error) {
+    console.error("Error in getFinancialReport:", error.message);
     return { 
       result: {
         rows: [],
@@ -317,9 +273,6 @@ export const getReservationsWithFinancialData = async (params = {}) => {
         limit: params.limit || 10000  // Use provided limit or default to 10000
       };
       
-      console.log("=== RESERVATIONS WITH FINANCIAL DATA REQUEST ===");
-      console.log("Request params:", JSON.stringify(enhancedParams, null, 2));
-      
       let allReservations = [];
       let meta = { 
         total: 0, 
@@ -337,116 +290,78 @@ export const getReservationsWithFinancialData = async (params = {}) => {
         if (allReservations.length === 0) {
           return { reservations: [], meta };
         }
-        
+
         // Process financial data
         let allFinancialMap = {};
         let totalRowsProcessed = 0;
         
-        // Extract the listing IDs from the parameters
-        const listingMapIds = enhancedParams.listingMapIds;
-        
-        if (listingMapIds && Array.isArray(listingMapIds) && listingMapIds.length > 0) {
-          // Process each listing separately
-          for (let i = 0; i < listingMapIds.length; i++) {
-            const listingId = listingMapIds[i];
+        // Extract listing map IDs from reservations if not provided in params
+        let listingMapIds = enhancedParams.listingMapIds;
+        if (!listingMapIds) {
+          // Try to get listing IDs from the reservations
+          const extractedListingIds = [...new Set(allReservations
+            .map(res => res.listingMapId || res.listingId || (res.listing ? res.listing.id : null))
+            .filter(id => id))];
             
-            // Filter reservations for this listing
-            const listingReservations = allReservations.filter(res => 
-              res.listingId === listingId || 
-              res.listingMapId === listingId ||
-              res.listing?.id === listingId
-            );
-            
-            if (listingReservations.length === 0) {
-              continue;
-            }
-            
-            // Get all reservation IDs for this listing
-            const listingReservationIds = listingReservations
-              .map(res => res.id || res.reservationId)
-              .filter(id => id);
-              
-            if (listingReservationIds.length === 0) {
-              continue;
-            }
-            
-            // Fetch financial data for this listing only
-            const listingFinancialParams = { 
-              ...enhancedParams,
-              listingMapIds: [listingId],
-              reservationIds: listingReservationIds,
-              limit: 10000 // Always use high limit for financial data
-            };
-            
-            const financialData = await getFinancialReport(listingFinancialParams);
-            const rowsCount = financialData?.result?.rows?.length || 0;
-            totalRowsProcessed += rowsCount;
-            
-            // Process financial data for this listing
-            if (financialData?.result?.rows && financialData.result.columns) {
-              const columns = financialData.result.columns;
-              
-              financialData.result.rows.forEach(row => {
-                const processedRow = {};
-                
-                columns.forEach((column, index) => {
-                  if (column.name) {
-                    processedRow[column.name] = row[index];
-                  }
-                });
-                
-                const numericId = processedRow.id;
-                
-                if (numericId) {
-                  allFinancialMap[String(numericId)] = processedRow;
-                }
-                
-                if (processedRow.reservationId) {
-                  allFinancialMap[processedRow.reservationId] = processedRow;
-                }
-              });
-            }
+          if (extractedListingIds.length > 0) {
+            listingMapIds = extractedListingIds;
+          } else if (enhancedParams.listingId) {
+            // Fallback to listingId if provided
+            listingMapIds = [enhancedParams.listingId];
           }
-        } else {
-          // Get all reservation IDs
-          const allReservationIds = allReservations
-            .map(res => res.id || res.reservationId)
-            .filter(id => id);
-            
-          // Fetch financial data with ALL reservation IDs at once
-          const financialParams = { 
-            ...enhancedParams,
-            reservationIds: allReservationIds,
-            limit: 10000 // Always use high limit for financial data
-          };
+        }
+
+        // Get all reservation IDs
+        const allReservationIds = allReservations
+          .map(res => res.id || res.reservationId)
+          .filter(id => id);
           
-          const financialData = await getFinancialReport(financialParams);
-          totalRowsProcessed += (financialData?.result?.rows?.length || 0);
+        // Fetch financial data with ALL reservation IDs at once
+        const financialParams = { 
+          ...enhancedParams,
+          reservationIds: allReservationIds,
+          limit: 10000 // Always use high limit for financial data
+        };
+        
+        // Always use listingMapIds and remove listingId
+        if (listingMapIds) {
+          financialParams.listingMapIds = Array.isArray(listingMapIds) ? listingMapIds : [listingMapIds];
+        }
+        // Always delete listingId to prevent conflicts
+        delete financialParams.listingId;
+        
+        const financialData = await getFinancialReport(financialParams);
+        totalRowsProcessed += (financialData?.result?.rows?.length || 0);
+        
+        // Process financial data
+        if (financialData?.result?.rows && financialData.result.columns) {
+          const columns = financialData.result.columns;
           
-          // Process financial data
-          if (financialData?.result?.rows && financialData.result.columns) {
-            const columns = financialData.result.columns;
+          financialData.result.rows.forEach(row => {
+            const processedRow = {};
             
-            financialData.result.rows.forEach(row => {
-              const processedRow = {};
-              
-              columns.forEach((column, index) => {
-                if (column.name) {
-                  processedRow[column.name] = row[index];
-                }
-              });
-              
-              const numericId = processedRow.id;
-              
-              if (numericId) {
-                allFinancialMap[String(numericId)] = processedRow;
-              }
-              
-              if (processedRow.reservationId) {
-                allFinancialMap[processedRow.reservationId] = processedRow;
+            columns.forEach((column, index) => {
+              if (column.name) {
+                processedRow[column.name] = row[index];
               }
             });
-          }
+            
+            const numericId = processedRow.id;
+            
+            if (numericId) {
+              allFinancialMap[String(numericId)] = processedRow;
+              // Check for alternative formats that might be causing the issue
+              if (typeof numericId === 'number') {
+                allFinancialMap[numericId] = processedRow;
+              }
+            }
+            
+            if (processedRow.reservationId) {
+              allFinancialMap[processedRow.reservationId] = processedRow;
+              // Also store with String conversion to be safe
+              allFinancialMap[String(processedRow.reservationId)] = processedRow;
+            }
+          });
         }
         
         // Map financial data to all reservations
@@ -539,10 +454,14 @@ export const getListingFinancials = async (params = {}) => {
       limit: 10000
     };
     
+    // Handle listingMapIds parameter
     if (params.listingMapIds) {
       requestBody.listingMapIds = Array.isArray(params.listingMapIds) 
         ? params.listingMapIds 
         : [params.listingMapIds];
+    } else if (params.listingId) {
+      // Convert listingId to listingMapIds if needed
+      requestBody.listingMapIds = [params.listingId];
     }
     
     const isFutureRevenue = !!params.fromDate;
@@ -637,8 +556,8 @@ export const getMonthlyRevenueData = async (listingIds, months = 6) => {
       endDate.setHours(23, 59, 59, 999);
       
       // Format dates for API
-      const fromDateStr = formatDateForApi(startDate);
-      const toDateStr = formatDateForApi(endDate);
+      const fromDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
+      const toDateStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
       
       // Get month name for label - ensure we use same format as current month in HomeScreen
       const monthName = startDate.toLocaleString('default', { month: 'short' });
@@ -710,8 +629,8 @@ export const getFutureRevenueData = async (listingIds, months = 6) => {
       endDate.setHours(23, 59, 59, 999);
       
       // Format dates for API
-      const fromDateStr = formatDateForApi(startDate);
-      const toDateStr = formatDateForApi(endDate);
+      const fromDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
+      const toDateStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
       
       // Get month name for label
       const monthName = startDate.toLocaleString('default', { month: 'short' });

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, memo, useMemo } from 'react';
+import React, { useEffect, useRef, useState, memo, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, Platform, Animated, TouchableOpacity, ActivityIndicator } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { formatCurrency } from '../utils/formatters';
@@ -29,7 +29,6 @@ const getLastSixMonthsLabels = () => {
     years.push(year);
   }
   
-  console.log("Last 6 months with years:", result.map((month, i) => `${month} ${years[i]}`));
   return { labels: result, years };
 };
 
@@ -84,11 +83,6 @@ const getCurrentYearMonths = () => {
   return months; // Return all months for full year view
 };
 
-// Log the months to verify
-console.log("Last 6 months:", getLastSixMonthsLabels());
-console.log("Current month:", getCurrentMonth());
-console.log("YTD months:", getYearToDateMonths());
-
 const RevenueChart = ({ data, loading, onFetchData }) => {
   // State for expanded/collapsed view
   const [expanded, setExpanded] = useState(false);
@@ -105,7 +99,6 @@ const RevenueChart = ({ data, loading, onFetchData }) => {
   // Log view mode changes for debugging
   useEffect(() => {
     if (prevViewModeRef.current !== viewMode) {
-      console.log(`[CHART] View mode changed from ${prevViewModeRef.current} to ${viewMode}`);
       prevViewModeRef.current = viewMode;
     }
   }, [viewMode]);
@@ -133,14 +126,7 @@ const RevenueChart = ({ data, loading, onFetchData }) => {
   const yearMonths = targetYearData.labels;
   const yearForTargetView = targetYearData.year;
   
-  // Log the months and years to verify
-  console.log("6M view spans years:", sixMonthYears);
-  console.log("YTD is for year:", ytdYear);
-  console.log("2024 view is for year:", yearForTargetView);
-  
-  // Log the full data object for debugging
-  console.log("RECEIVED DATA:", JSON.stringify(data));
-  
+  // Log the full data object for debuggin  
   // Safely extract data from API response based on the current view mode
   const viewData = data?.[viewMode] || {};
   const viewLabels = Array.isArray(viewData?.labels) ? viewData.labels : [];
@@ -150,9 +136,7 @@ const RevenueChart = ({ data, loading, onFetchData }) => {
   // Fallback to 6M data if the current view doesn't have data
   const sixMonthData = data?.['6M'] || {};
   const chartData = Array.isArray(sixMonthData?.data) ? sixMonthData.data : [];
-  
-  console.log(`[CHART DEBUG] ${viewMode} data:`, viewValues.length > 0 ? 'available' : 'empty');
-  
+    
   // Get appropriate labels based on view mode - prefer API data first
   let labels;
   let labelYears;
@@ -244,15 +228,11 @@ const RevenueChart = ({ data, loading, onFetchData }) => {
   
   // Data should be aligned with months (oldest to newest)
   const adjustedChartData = normalizedChartData;
-  
-  console.log(`${viewMode} Chart Data Final:`, adjustedChartData.length, "bars:", adjustedChartData);
-  
+    
   // Calculate maximum value for chart scaling
   const maxValue = adjustedChartData && adjustedChartData.length > 0
     ? Math.max(...adjustedChartData.filter(value => typeof value === 'number' && !isNaN(value)))
     : 100; // Default value if no valid data
-
-  console.log(`Chart max value: ${maxValue}`);
   
   // Toggle expanded state
   const toggleExpanded = () => {
@@ -270,68 +250,37 @@ const RevenueChart = ({ data, loading, onFetchData }) => {
   };
   
   // Method to handle view mode selection
-  const selectViewMode = async (mode) => {
+  const selectViewMode = useCallback(async (mode) => {
     try {
-      console.log(`[CHART] Selecting view mode: ${mode}, current mode: ${viewMode}`);
-      
-      // If already in the selected mode, just return
+      // If already in this mode, do nothing
       if (mode === viewMode) {
-        console.log(`[CHART] Already in ${mode} mode, skipping update`);
         return;
       }
       
-      // Check if we already have data for this mode
-      if (data && data[mode] && data[mode].data && data[mode].data.length > 0) {
-        console.log(`[CHART] Data for ${mode} mode already loaded, skipping fetch`);
+      // If data for this mode is already available, just switch to it
+      if (data && data[mode] && data[mode].length > 0) {
         setViewMode(mode);
-        setDropdownVisible(false);
         return;
       }
       
-      // If we're changing modes, show loading state
+      // Set loading state and fetch data if needed
+      setViewMode(mode);
       setFetchingData(true);
       
-      try {
-        // Get the current year if needed
-        const currentYearData = getCurrentYearData();
-        
-        // Fetch data for the selected mode
-        const result = await onFetchData(mode, currentYearData);
-        
-        if (result) {
-          console.log(`[CHART] Data fetch successful for ${mode} mode`);
-          // Process the fetched data
-          const { labels = [], data = [] } = result;
-          
-          // Create month data array for chart rendering
-          const newMonthData = labels.map((month, index) => ({
-            month,
-            value: data[index] || 0
-          }));
-          
-          // Update component state with the new data
-          setMonthData(newMonthData);
-          setViewMode(mode);
-          console.log(`[CHART] Chart data updated for ${mode} mode (${newMonthData.length} months)`);
-        } else {
-          console.warn(`[CHART] No data returned for ${mode} mode`);
-          // If no data, clear the chart
-          setMonthData([]);
-        }
-      } catch (error) {
-        console.error(`[CHART] Error while changing to ${mode} mode:`, error);
-        // Show error state or fallback
-        setMonthData([]);
-      } finally {
-        setFetchingData(false);
-        setDropdownVisible(false);
+      const res = await onFetchData(mode, getCurrentYearData());
+      
+      if (res && res[mode]) {
+        setData(prev => ({ ...prev, [mode]: res[mode] }));
+        setCurrentMonthData(res[mode]);
+      } else {
+        console.warn(`[CHART] No data returned for ${mode} mode`);
       }
-    } catch (outerError) {
-      console.error(`[CHART] Unexpected error in selectViewMode:`, outerError);
+    } catch (error) {
+      console.error(`[CHART] Error while changing to ${mode} mode:`, error);
+    } finally {
       setFetchingData(false);
-      setDropdownVisible(false);
     }
-  };
+  }, [viewMode, data, onFetchData]);
   
   // Optimize animation to be more performant
   useEffect(() => {
@@ -659,18 +608,14 @@ const RevenueChart = ({ data, loading, onFetchData }) => {
       </View>
     );
   }, [adjustedChartData, memoizedRoundedMax, labels, dropdownVisible]);
-  
-  // Log data structure, view mode, and loading state for debugging
-  console.log(`[CHART DEBUG] View Mode: ${viewMode}, Loading: ${loading}, Fetching: ${fetchingData}`);
-  console.log(`[CHART DEBUG] Data Keys:`, Object.keys(data || {}));
-  console.log(`[CHART DEBUG] ${viewMode} Data:`, data?.[viewMode]);
+
   
   // Check if the viewMode data is available after initial loading
-  useEffect(() => {
-    if (!fetchingData && data && data[viewMode]?.data?.length > 0) {
-      console.log(`[CHART] Data available for ${viewMode}, validating view mode`);
-    }
-  }, [data, viewMode, fetchingData]);
+  // useEffect(() => {
+  //   if (!fetchingData && data && data[viewMode]?.data?.length > 0) {
+  //     console.log(`[CHART] Data available for ${viewMode}, validating view mode`);
+  //   }
+  // }, [data, viewMode, fetchingData]);
   
   // Memoize month labels to avoid rerendering
   const monthLabelsComponent = React.useMemo(() => (

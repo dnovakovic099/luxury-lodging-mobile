@@ -83,7 +83,7 @@ const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 Ionicons.loadFont()
-  .then(() => console.log('Ionicons font loaded'))
+  .then(() => {/* Font loaded */})
   .catch(error => console.error('Error loading Ionicons font', error));
 
 const MainTabs = () => (

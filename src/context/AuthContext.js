@@ -109,10 +109,6 @@ export function AuthProvider({ children }) {
   // Fetch only upcoming reservations (limit 3) for quick display on HomeScreen
   const fetchUpcomingReservations = async () => {
     if (upcomingReservationsFetchInProgress.current || !listings || listings.length === 0) {
-      console.log("DEBUG - Skipping fetch: ", {
-        inProgress: upcomingReservationsFetchInProgress.current,
-        hasListings: !!listings && listings.length > 0
-      });
       if (upcomingReservationsLoading) setUpcomingReservationsLoading(false);
       return;
     }
@@ -145,22 +141,8 @@ export function AuthProvider({ children }) {
       const fromDateStr = formatDate(yesterday);
       const toDateStr = formatDate(sixtyDaysFromNow);
       
-      console.log("DEBUG - API Date Range:", { 
-        from: fromDateStr, 
-        to: toDateStr,
-        yesterdayRaw: yesterday.toString(),
-        todayRaw: today.toString()
-      });
-      
       // Get all listing IDs for API calls
       const listingIds = listings.map(listing => parseInt(listing.id)).filter(id => !isNaN(id));
-      console.log("DEBUG - Fetch params: ", {
-        listingCount: listingIds.length,
-        dateRange: `${fromDateStr} to ${toDateStr}`
-      });
-      
-      // Use efficient concurrent fetching, one reservation per listing
-      console.log("DEBUG - Starting concurrent per-listing fetch");
       
       // Create array of fetch promises for each listing
       const fetchPromises = listingIds.map(listingId => {
@@ -176,24 +158,8 @@ export function AuthProvider({ children }) {
           limit: 1 // We only need the next upcoming reservation per listing
         };
         
-        // Log the exact parameters for each API call for the first listing
-        if (listingId === listingIds[0]) {
-          console.log("DEBUG - EXACT API PARAMETERS:", JSON.stringify(params, null, 2));
-        }
-        
         return getReservationsWithFinancialData(params)
           .then(result => {
-            // Log the actual result for the first listing to check what's coming back
-            if (listingId === listingIds[0] && result?.reservations?.length > 0) {
-              console.log("DEBUG - FIRST LISTING RESULTS:", 
-                result.reservations.map(r => ({
-                  id: r.id,
-                  checkIn: r.checkIn || r.arrivalDate,
-                  status: r.status,
-                }))
-              );
-            }
-            
             if (result?.reservations && Array.isArray(result.reservations) && result.reservations.length > 0) {
               return result.reservations;
             }
@@ -206,19 +172,16 @@ export function AuthProvider({ children }) {
       });
       
       // Wait for all requests to complete in parallel
-      console.log("DEBUG - Sending concurrent requests for", listingIds.length, "listings");
       const resultsArray = await Promise.all(fetchPromises);
       
       // Flatten the array of arrays
       let allUpcomingReservations = resultsArray.flat();
-      console.log("DEBUG - Got", allUpcomingReservations.length, "reservations from per-listing calls");
       
       // Process the reservations to add listing names if missing
       allUpcomingReservations = allUpcomingReservations.map(res => {
         const listingId = res.listingId || res.listingMapId;
         const currentListing = listings.find(l => parseInt(l.id) === parseInt(listingId));
         const listingName = currentListing?.name || 'Unknown Property';
-        console.log({ listingName, guestName: res.guestName, startDate: res.checkIn || res.arrivalDate })
         
         return {
           ...res,
@@ -229,22 +192,12 @@ export function AuthProvider({ children }) {
         };
       });
       
-      console.log("DEBUG - Processed reservations:", allUpcomingReservations.length);
-      
       // Filter to get only upcoming reservations
       const today2 = new Date();
       today2.setHours(0, 0, 0, 0); // Reset to beginning of day
       
       // Take only first 3
       const finalReservations = allUpcomingReservations.slice(0, 3);
-      console.log("DEBUG - Final reservations:", finalReservations.length);
-      if (finalReservations.length > 0) {
-        console.log("DEBUG - First reservation sample:", {
-          id: finalReservations[0].id,
-          listing: finalReservations[0].listingName,
-          date: finalReservations[0].checkIn || finalReservations[0].arrivalDate
-        });
-      }
       
       setUpcomingReservations(finalReservations);
     } catch (error) {

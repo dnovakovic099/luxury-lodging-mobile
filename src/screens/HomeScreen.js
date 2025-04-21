@@ -35,17 +35,14 @@ const HomeScreen = ({ navigation }) => {
   // Load financial data directly from API
   const loadFinancialData = async () => {
     if (!listings || !listings.length) {
-      console.log('No listings available, skipping financial data fetch');
       return;
     }
     
     setLoading(true);
-    console.log('Current Revenue Summary Data:', {futureRevenue, sharingRevenue, totalRevenue});
     
     try {
       // Get all listing IDs and ensure they are numbers
       const listingIds = listings.map(listing => Number(listing.id)).filter(id => !isNaN(id));
-      console.log(`Using ${listingIds.length} listings for financial data:`, listingIds);
       
       // Format current date for API
       const formatDateForApi = (date) => {
@@ -70,9 +67,7 @@ const HomeScreen = ({ navigation }) => {
         statuses: ['confirmed', 'new', 'modified', 'ownerStay']
       };
       
-      console.log('Fetching total revenue with params:', JSON.stringify(totalRevenueParams));
       const totalRevenueData = await getListingFinancials(totalRevenueParams);
-      console.log('TOTAL REVENUE - ownerPayout:', totalRevenueData?.result?.ownerPayout);
       
       // 2. Get future revenue with an explicit long date range (from today to 2 years in future)
       const futureRevenueParams = {
@@ -83,9 +78,7 @@ const HomeScreen = ({ navigation }) => {
         statuses: ['confirmed', 'new', 'modified', 'ownerStay']
       };
       
-      console.log('Fetching future revenue with explicit date range:', JSON.stringify(futureRevenueParams));
       const futureRevenueData = await getListingFinancials(futureRevenueParams);
-      console.log('FUTURE REVENUE (from API) - ownerPayout:', futureRevenueData?.result?.ownerPayout);
       
       // Set total revenue from API
       const extractedTotalRevenue = totalRevenueData?.result?.ownerPayout || 0;
@@ -96,7 +89,6 @@ const HomeScreen = ({ navigation }) => {
       setFutureRevenue(explicitFutureRevenue);
       
       // 3. Get monthly revenue data for chart directly from API
-      console.log('Fetching monthly revenue data for chart...');
       const monthlyData = await getMonthlyRevenueData(listingIds, 24); // Get 24 months of data for better filtering
       
       // Make sure we have years data, if not, generate it
@@ -111,10 +103,8 @@ const HomeScreen = ({ navigation }) => {
           date.setMonth(currentMonth - monthOffset);
           monthlyData.years.push(date.getFullYear());
         }
-        console.log('Generated years for monthly data:', monthlyData.years);
       }
       
-      console.log('MONTHLY DATA:', monthlyData);
       
       // Process data for different time periods
       const currentYear = new Date().getFullYear();
@@ -267,18 +257,6 @@ const HomeScreen = ({ navigation }) => {
       
       setChartData(formattedChartData);
       
-      console.log('Updated Revenue Summary Data:', {
-        totalRevenue: extractedTotalRevenue,
-        futureRevenue: explicitFutureRevenue,
-        sharingRevenue,
-        sixMonthsLabels: sixMonthsData.labels.join(', '),
-        sixMonthsYears: sixMonthsData.years.join(', '),
-        ytdLabels: ytdData.labels.join(', '),
-        ytdYears: ytdData.years.join(', '),
-        year2024Labels: year2024Data.labels.join(', '),
-        year2024Total: year2024Data.total
-      });
-      
     } catch (error) {
       console.error('Error loading financial data:', error);
     } finally {
@@ -331,12 +309,10 @@ const HomeScreen = ({ navigation }) => {
   
   // Function to handle data fetching for different chart views
   const handleChartDataFetch = async (viewMode, yearInfo) => {
-    console.log(`Fetching data for ${viewMode} view with year info:`, yearInfo);
     
     try {
       // Check if we already have data for this viewMode
       if (chartData && chartData[viewMode]?.data?.length > 0) {
-        console.log(`[HOME] Already have ${viewMode} data, returning existing data`);
         return Promise.resolve(chartData[viewMode]);
       }
       
@@ -344,7 +320,6 @@ const HomeScreen = ({ navigation }) => {
       const listingIds = listings.map(listing => Number(listing.id)).filter(id => !isNaN(id));
       
       if (!listingIds.length) {
-        console.log('[HOME] No listing IDs available for data fetch');
         return Promise.resolve(null);
       }
       
@@ -462,11 +437,6 @@ const HomeScreen = ({ navigation }) => {
         }
       }
       
-      // Log data for debugging
-      console.log(`[HOME] Updated ${viewMode} data:`, 
-        updatedChartData[viewMode]?.labels?.length, 
-        updatedChartData[viewMode]?.data?.length
-      );
       
       // Set the updated chart data
       setChartData(updatedChartData);
@@ -504,25 +474,6 @@ const HomeScreen = ({ navigation }) => {
       console.error('Error signing out:', error);
     }
   };
-
-  // Debug log for upcoming reservations from AuthContext
-  useEffect(() => {
-    if (upcomingReservations) {
-      console.log('HomeScreen: Upcoming reservations count:', upcomingReservations.length);
-      if (upcomingReservations.length > 0) {
-        console.log('HomeScreen: Upcoming reservations sample:', 
-          upcomingReservations.map(r => ({
-            id: r?.id,
-            propertyName: r?.listingName || r?.property?.name || 'Unknown',
-            arrival: r?.arrivalDate || r?.checkIn || 'No date',
-            status: r?.status || 'No status'
-          }))
-        );
-      }
-    } else {
-      console.log('HomeScreen: No upcoming reservations from AuthContext');
-    }
-  }, [upcomingReservations]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -563,29 +514,6 @@ const HomeScreen = ({ navigation }) => {
           loading={loading}
           style={styles.revenueSummary}
         />
-
-        {/* Debug revenue values being passed to RevenueSummary */}
-        {console.log('Revenue Summary Data:', { 
-          totalRevenue, 
-          futureRevenue, 
-          sharingRevenue 
-        })}
-        
-        {/* Debug upcoming reservations data */}
-        {console.log('Upcoming Reservations Data:', JSON.stringify({
-          count: upcomingReservations?.length || 0,
-          isArray: Array.isArray(upcomingReservations),
-          uniqueListings: upcomingReservations ? 
-            [...new Set(upcomingReservations.map(r => r?.listingName || r?.property?.name || r?.listing?.name))].filter(Boolean) : 'No reservations',
-          data: upcomingReservations ? upcomingReservations.map(r => ({
-            id: r?.id,
-            listingId: r?.listingId,
-            listingName: r?.listingName || r?.property?.name || r?.listing?.name || 'Unknown',
-            checkIn: r?.checkIn || r?.arrivalDate,
-            guest: r?.guest?.name,
-            status: r?.status
-          })) : 'No reservations'
-        }))}
 
         <UpcomingReservations
           reservations={upcomingReservations}

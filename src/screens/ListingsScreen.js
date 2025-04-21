@@ -95,18 +95,15 @@ const ListingsScreen = () => {
           statuses: ['confirmed', 'new', 'modified', 'ownerStay']
         };
         
-        console.log(`Fetching financial data for listing ${listingId}`);
         const listingFinancialData = await getListingFinancials(listingParams);
         
         // Extract the revenue from the API response
         const listingRevenue = listingFinancialData?.result?.ownerPayout || 0;
-        console.log(`Listing ${listingId} revenue: ${listingRevenue}`);
         
         // Store in our property revenues map
         revenueByProperty[listingId] = listingRevenue;
       }
       
-      console.log('Financial data fetched for all properties:', Object.keys(revenueByProperty).length);
       setPropertyRevenues(revenueByProperty);
       
     } catch (error) {

@@ -30,7 +30,6 @@ const AuthScreen = () => {
     setIsLoading(true);
 
     try {
-      console.log('Signing in with:', email);
       await signIn({ email, password });
     } catch (error) {
       Alert.alert('Error', error.message || 'Sign in failed');

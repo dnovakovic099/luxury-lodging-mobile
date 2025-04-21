@@ -15,6 +15,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import PropertyPicker from '../components/PropertyPicker';
 import { useAuth } from '../context/AuthContext';
 import { getReservationsWithFinancialData } from '../services/api';
+import ReservationDetailModal from '../components/ReservationDetailModal';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DAY_CELL_SIZE = Math.floor(SCREEN_WIDTH / 7);
@@ -40,6 +41,10 @@ const CalendarScreen = ({ navigation }) => {
   const [isLoading, setIsLoading] = useState(true);
   const scrollViewRef = useRef(null);
   const [currentMonthIndex, setCurrentMonthIndex] = useState(0);
+  
+  // Add state for the modal
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedReservation, setSelectedReservation] = useState(null);
 
   // Format listings for property picker
   const formattedListings = React.useMemo(() => {
@@ -59,8 +64,6 @@ const CalendarScreen = ({ navigation }) => {
         imageUrl = listing.listingImages[0].url;
       }
 
-      console.log('imageUrl', imageUrl);
-      
       return {
         id: listing.id.toString(),
         name: listing.name || `Property ${listing.id}`,
@@ -76,7 +79,7 @@ const CalendarScreen = ({ navigation }) => {
       setTimeout(() => {
         // Calculate position based on month height (approx 450px per month)
         const monthHeight = 450; 
-        scrollViewRef.current.scrollTo({ 
+        scrollViewRef && scrollViewRef.current && scrollViewRef.current.scrollTo({ 
           y: currentMonthIndex * monthHeight, 
           animated: false 
         });
@@ -168,6 +171,7 @@ const CalendarScreen = ({ navigation }) => {
     try {
       // Calculate date range for 6 months before and after
       const today = new Date();
+      
       const startDate = new Date(today);
       startDate.setMonth(today.getMonth() - 6);
       startDate.setDate(1); // First day of month
@@ -189,19 +193,8 @@ const CalendarScreen = ({ navigation }) => {
         statuses: VALID_STATUSES
       };
       
-      // Log detailed API request information
-      console.log('API Request:');
-      console.log('Endpoint: /reservations');
-      console.log('Parameters:', JSON.stringify(params, null, 2));
-      console.log('Valid statuses:', VALID_STATUSES);
-      
       // Fetch reservations from API
       const result = await getReservationsWithFinancialData(params);
-      
-      // Log the raw API response
-      console.log('API Response:');
-      console.log('Total reservations:', result?.reservations?.length || 0);
-      console.log('Status distribution:');
       
       // Count reservations by status
       const statusCounts = {};
@@ -211,15 +204,7 @@ const CalendarScreen = ({ navigation }) => {
           statusCounts[status] = (statusCounts[status] || 0) + 1;
         });
         
-        console.log(JSON.stringify(statusCounts, null, 2));
-        
-        // Log a sample reservation if available
-        if (result.reservations.length > 0) {
-          console.log('Sample reservation:');
-          console.log(JSON.stringify(result.reservations[0], null, 2));
-        }
-        
-        // Transform API data to our booking format with strict status filtering
+        // Transform API data to our booking format with strict status and date filtering
         const transformedBookings = result.reservations
           .filter(res => {
             // Validate that we have both arrival and departure dates
@@ -229,15 +214,23 @@ const CalendarScreen = ({ navigation }) => {
             // Strict status check
             const hasValidStatus = VALID_STATUSES.includes(res.status);
             
-            // Log status information for debugging
-            console.log(`Reservation ${res.id}: Status "${res.status}" - Valid: ${hasValidStatus}`);
-            
-            if (!hasValidStatus) {
-              console.log(`Filtering out reservation with invalid status ${res.status}:`, res.id);
+            // Additional date range check - ensure the arrival date is within our window
+            let isWithinDateRange = true;
+            if (hasArrival) {
+              const arrivalDate = new Date(res.arrivalDate || res.checkInDate);
+              isWithinDateRange = arrivalDate >= startDate && arrivalDate <= endDate;
+              
+              if (!isWithinDateRange) {
+                // Filtering out reservation with arrival date outside date range
+              }
             }
             
-            // Only include reservations with valid dates AND valid status
-            return hasArrival && hasDeparture && hasValidStatus;
+            if (!hasValidStatus) {
+              // Filtering out reservation with invalid status
+            }
+            
+            // Only include reservations with valid dates, status, and within date range
+            return hasArrival && hasDeparture && hasValidStatus && isWithinDateRange;
           })
           .map(res => {
             // Get dates from reservation
@@ -262,18 +255,6 @@ const CalendarScreen = ({ navigation }) => {
               return null;
             }
             
-            console.log(`Reservation ${res.id} dates: Original start=${startDate.toISOString()}, Adjusted start=${adjustedStartDate.toISOString()}, End=${endDate.toISOString()}`);
-            
-            // Debug each reservation's source information
-            console.log('Reservation source info:', {
-              id: res.id,
-              channelName: res.channelName,
-              sourceType: res.sourceType,
-              sourceName: res.sourceName,
-              channel: res.channel,
-              guestName: res.guestName || res.guestFirstName
-            });
-            
             // Determine the channel color using channelName
             let channelType = 'default';
             
@@ -287,26 +268,20 @@ const CalendarScreen = ({ navigation }) => {
                          channelNameLower.includes('expedia')) {
                 channelType = 'vrbo';
               } else {
-                // Print the exact channel name for debugging
-                console.log(`Unrecognized channel name: "${res.channelName}" for reservation ${res.id}`);
+                // Unrecognized channel name
               }
-              
-              console.log(`Reservation ${res.id}: Channel detected as ${channelType} from channelName "${res.channelName}"`);
             } else {
               // Fallback to other fields if channelName is not available
-              console.log(`No channelName for reservation ${res.id}, trying fallbacks`);
               
               // Check source type
               if (res.sourceType) {
                 const sourceTypeLower = String(res.sourceType).toLowerCase();
                 if (sourceTypeLower.includes('airbnb')) {
                   channelType = 'airbnb';
-                  console.log(`Reservation ${res.id}: Using Airbnb from sourceType "${res.sourceType}"`);
                 } else if (sourceTypeLower.includes('vrbo') || 
                             sourceTypeLower.includes('homeaway') ||
                             sourceTypeLower.includes('expedia')) {
                   channelType = 'vrbo';
-                  console.log(`Reservation ${res.id}: Using VRBO from sourceType "${res.sourceType}"`);
                 }
               }
               
@@ -315,12 +290,10 @@ const CalendarScreen = ({ navigation }) => {
                 const sourceNameLower = String(res.sourceName).toLowerCase();
                 if (sourceNameLower.includes('airbnb')) {
                   channelType = 'airbnb';
-                  console.log(`Reservation ${res.id}: Using Airbnb from sourceName "${res.sourceName}"`);
                 } else if (sourceNameLower.includes('vrbo') || 
                             sourceNameLower.includes('homeaway') ||
                             sourceNameLower.includes('expedia')) {
                   channelType = 'vrbo';
-                  console.log(`Reservation ${res.id}: Using VRBO from sourceName "${res.sourceName}"`);
                 }
               }
               
@@ -329,20 +302,21 @@ const CalendarScreen = ({ navigation }) => {
                 const channelLower = String(res.channel).toLowerCase();
                 if (channelLower.includes('airbnb')) {
                   channelType = 'airbnb';
-                  console.log(`Reservation ${res.id}: Using Airbnb from channel "${res.channel}"`);
                 } else if (channelLower.includes('vrbo') || 
                             channelLower.includes('homeaway') ||
                             channelLower.includes('expedia')) {
                   channelType = 'vrbo';
-                  console.log(`Reservation ${res.id}: Using VRBO from channel "${res.channel}"`);
                 }
               }
-
-              console.log(`Final channel type for reservation ${res.id}: ${channelType}`);
             }
             
             // Use the appropriate color based on channel
             const bookingColor = CHANNEL_COLORS[channelType];
+            
+            // Log financial fields for tracing owner payout
+            if (res.id === 37265566 || res.reservationId === 37265566) {
+              // Remove debugging console logs
+            }
             
             return {
               id: res.id || res.reservationId,
@@ -353,12 +327,47 @@ const CalendarScreen = ({ navigation }) => {
               status: res.status,
               channel: channelType,
               channelName: res.channelName || '',
-              sourceType: res.sourceType || ''
+              sourceType: res.sourceType || '',
+              // Map all financial data and reservation details
+              adults: res.adults || res.numberOfGuests || 1,
+              infants: res.infants || 0,
+              children: res.children || 0,
+              nights: res.nights || 0,
+              confirmationCode: res.confirmationCode || '',
+              reservationDate: res.reservationDate || res.bookingDate || '',
+              phone: res.phone || '',
+              // Airbnb specific fields
+              airbnbCancellationPolicy: res.airbnbCancellationPolicy || '',
+              airbnbExpectedPayoutAmount: res.airbnbExpectedPayoutAmount || 0,
+              airbnbListingBasePrice: res.airbnbListingBasePrice || 0,
+              airbnbListingCancellationHostFee: res.airbnbListingCancellationHostFee || 0,
+              airbnbListingCancellationPayout: res.airbnbListingCancellationPayout || 0,
+              airbnbListingCleaningFee: res.airbnbListingCleaningFee || 0,
+              airbnbListingHostFee: res.airbnbListingHostFee || 0,
+              airbnbListingSecurityPrice: res.airbnbListingSecurityPrice || 0,
+              airbnbOccupancyTaxAmountPaidToHost: res.airbnbOccupancyTaxAmountPaidToHost || 0,
+              airbnbTotalPaidAmount: res.airbnbTotalPaidAmount || 0,
+              airbnbTransientOccupancyTaxPaidAmount: res.airbnbTransientOccupancyTaxPaidAmount || 0,
+              // Generic financial fields
+              ownerPayout: res.ownerPayout || 0,
+              // Properly extract financial data from either direct fields or nested financialData
+              baseRate: res.baseRate || res.airbnbListingBasePrice || (res.financialData ? res.financialData.baseRate : 0) || 0,
+              cleaningFee: res.cleaningFee || res.airbnbListingCleaningFee || (res.financialData ? res.financialData.cleaningFeeValue : 0) || 0,
+              serviceFee: res.serviceFee || res.airbnbListingHostFee || (res.financialData ? res.financialData.serviceFee : 0) || 0,
+              occupancyTaxes: res.taxAmount || res.airbnbTransientOccupancyTaxPaidAmount || (res.financialData ? res.financialData.transientOccupancyTax : 0) || 0,
+              tourismTax: (res.financialData ? res.financialData.tourismFee : 0) || 0,
+              cityTax: (res.financialData ? res.financialData.cityTax : 0) || 0,
+              guestTotal: res.totalPrice || res.airbnbTotalPaidAmount || (res.financialData ? res.financialData.totalPaid : 0) || 0,
+              channelReservationId: res.channelReservationId || '',
+              totalPrice: res.totalPrice || (res.financialData ? res.financialData.totalPaid : 0) || 0,
+              // Additional financial fields
+              hostChannelFee: (res.financialData ? res.financialData.hostChannelFee : 0) || 0,
+              pmCommission: (res.financialData ? res.financialData.managementFeeAirbnb : 0) || 0,
+              // Store the raw financialData object if available
+              financialData: res.financialData || null,
             };
           })
           .filter(booking => booking !== null);
-        
-        console.log(`Filtered to ${transformedBookings.length} valid reservations with status in`, VALID_STATUSES);
         
         // Final verification that all bookings have valid statuses
         const validBookings = transformedBookings.filter(booking => {
@@ -375,7 +384,7 @@ const CalendarScreen = ({ navigation }) => {
         
         setBookings(validBookings);
       } else {
-        console.log('No reservations found or invalid response');
+        // Handle no reservations or invalid response
         setBookings([]);
       }
     } catch (error) {
@@ -387,7 +396,6 @@ const CalendarScreen = ({ navigation }) => {
   };
 
   const handlePropertyChange = (propertyId) => {
-    console.log('Property changed to:', propertyId);
     setSelectedProperty(propertyId);
     // Reservations will be fetched by the useEffect
   };
@@ -459,20 +467,13 @@ const CalendarScreen = ({ navigation }) => {
         
         // Check if targetDate is within booking range (inclusive)
         const isInRange = targetTime >= startTime && targetTime <= endTime;
-        
-        if (isInRange) {
-          // Log for debugging
-          console.log(`Date ${targetDate.toISOString().split('T')[0]} matches booking ${booking.id} 
-            (${bookingStart.toISOString().split('T')[0]} to ${bookingEnd.toISOString().split('T')[0]})`);
-        }
+    
         
         return isInRange;
       });
       
       // If we have multiple bookings, prioritize them based on channel type
       if (matchingBookings.length > 1) {
-        console.log(`Found ${matchingBookings.length} overlapping bookings for date ${date.toISOString().split('T')[0]}`);
-        
         // Sort by channel - prioritize Airbnb, then VRBO, then others
         return matchingBookings.sort((a, b) => {
           if (a.channel === 'airbnb' && b.channel !== 'airbnb') return -1;
@@ -529,6 +530,83 @@ const CalendarScreen = ({ navigation }) => {
     }
   };
 
+  // Handle booking click to show reservation details
+  const handleBookingClick = (booking) => {
+    if (!booking) return;
+
+    // Debug the booking payout values
+    // Remove debugging console logs
+    
+    // Create a reservation object mapping the API response to our modal fields
+    const reservation = {
+      id: booking.id,
+      // Guest information
+      guestName: booking.guestName || booking.guestFirstName + ' ' + booking.guestLastName || 'Guest',
+      guestFirstName: booking.guestFirstName,
+      guestLastName: booking.guestLastName,
+      guestEmail: booking.guestEmail,
+      guestPhone: booking.phone,
+      guestPicture: booking.guestPicture,
+      
+      // Property information
+      propertyLocation: selectedPropertyData?.location || selectedPropertyData?.city || 
+                       (selectedPropertyData?.name?.split('-')?.[0]?.trim()) || 'Property',
+      propertyName: booking.listingName || selectedPropertyData?.name || 'Property',
+      propertyDescription: selectedPropertyData?.description || '',
+      
+      // Reservation dates
+      arrivalDate: booking.startDate || new Date(booking.arrivalDate),
+      departureDate: booking.endDate || new Date(booking.departureDate),
+      bookingDate: new Date(booking.reservationDate || Date.now()),
+      
+      // Guest counts
+      adultCount: booking.adults || booking.numberOfGuests || 1,
+      infantCount: booking.infants || 0,
+      childrenCount: booking.children || 0,
+      
+      // Booking details
+      confirmationCode: booking.confirmationCode || booking.channelReservationId || 'N/A',
+      cancellationPolicy: booking.airbnbCancellationPolicy || booking.cancellationPolicy || 'Standard',
+      phoneNumber: booking.phone || null,
+      nights: booking.nights || calculateBookingLength(booking),
+      
+      // Financial data for Guest Paid section
+      nightlyRate: booking.baseRate ? booking.baseRate / (booking.nights || 1) : 0,
+      cleaningFee: booking.cleaningFee || 0,
+      serviceFee: booking.serviceFee || booking.hostChannelFee || 0,
+      occupancyTaxes: booking.occupancyTaxes || booking.tourismTax || booking.cityTax || 0,
+      guestTotal: booking.guestTotal || booking.totalPrice || 0,
+      
+      // Financial data for Host Payout section
+      baseRate: parseFloat(booking.baseRate) || 0,
+      processingFee: booking.financialData?.PaymentProcessing ? parseFloat(booking.financialData.PaymentProcessing) : 0,
+      channelFee: booking.hostChannelFee ? parseFloat(booking.hostChannelFee) : 0,
+      managementFee: booking.pmCommission ? parseFloat(booking.pmCommission) : 0,
+      
+      // Final payout
+      hostPayout: parseFloat(booking.ownerPayout) || parseFloat(booking.airbnbExpectedPayoutAmount) || 0,
+      
+      // Channel information
+      channelName: booking.channelName || '',
+      channel: booking.channel || '',
+      status: booking.status || '',
+      paymentStatus: booking.paymentStatus || '',
+      
+      // Raw financial data
+      financialData: booking.financialData || null,
+    };
+    
+    // Set the selected reservation and show the modal
+    setSelectedReservation(reservation);
+    
+    // Log the formatted reservation object that will be passed to the modal
+    console.log("FORMATTED RESERVATION OBJECT (Passed to modal):");
+    console.log(JSON.stringify(reservation, null, 2));
+    console.log("==============================================");
+    
+    setModalVisible(true);
+  };
+
   const renderDay = (date, month) => {
     if (!date) return <View style={styles.emptyDay} />;
     
@@ -553,8 +631,9 @@ const CalendarScreen = ({ navigation }) => {
       }
     }
     
-    return (
-      <View style={styles.dayCell}>
+    // Create cell content
+    const cellContent = (
+      <>
         <Text style={styles.dayNumber}>{dayNum}</Text>
         
         {booking && segmentType && (
@@ -572,6 +651,18 @@ const CalendarScreen = ({ navigation }) => {
             )}
           </View>
         )}
+      </>
+    );
+    
+    return (
+      <View style={styles.dayCellContainer}>
+        <TouchableOpacity 
+          style={styles.dayCell}
+          onPress={() => booking && handleBookingClick(booking)}
+          disabled={!booking}
+        >
+          {cellContent}
+        </TouchableOpacity>
         
         {/* Render name separately to allow it to float over cell boundaries */}
         {booking && isFirstDay && (
@@ -684,6 +775,13 @@ const CalendarScreen = ({ navigation }) => {
           ))}
         </ScrollView>
       )}
+      
+      {/* Reservation detail modal */}
+      <ReservationDetailModal
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        reservation={selectedReservation}
+      />
     </SafeAreaView>
   );
 };
@@ -771,6 +869,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     width: '100%',
   },
+  dayCellContainer: {
+    width: DAY_CELL_SIZE,
+    height: 70,
+    position: 'relative',
+  },
   dayCell: {
     width: DAY_CELL_SIZE,
     height: 70,
@@ -779,7 +882,6 @@ const styles = StyleSheet.create({
     padding: 4,
     justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
-    overflow: 'visible',
   },
   emptyDay: {
     width: DAY_CELL_SIZE,
@@ -863,7 +965,7 @@ const styles = StyleSheet.create({
     paddingLeft: 0,
     width: DAY_CELL_SIZE * 3,
     justifyContent: 'center',
-    overflow: 'visible',
+    pointerEvents: 'none',
   },
   nameOverlayText: {
     fontSize: 10,

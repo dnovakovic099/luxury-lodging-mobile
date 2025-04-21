@@ -28,12 +28,9 @@ export const ConsultationProvider = ({ children }) => {
   }, [complete])
 
   const sendMessage = async () => {
-    console.log('sendMessage start');
     const token = await  getToken();
-    console.log('getToken', token);
     try {
       uploadMessage(message, token).then(res => {
-        console.log('uploadMessage res', res);
         setComplete(true)
         setIsLoading(false);
         setMessage(null);
