@@ -41,6 +41,7 @@ import ReservationsScreen from './src/screens/ReservationsScreen';
 import SupportScreen from './src/screens/SupportScreen';
 import EarnMoreScreen from './src/screens/EarnMoreScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
+import AIReportScreen from './src/screens/NewsScreen';
 
 // No need for separate SignOutScreen - we'll add a button to HomeScreen instead
 
@@ -56,7 +57,7 @@ const MainTabs = () => {
   return (
   <View style={{flex: 1, backgroundColor: theme.background}}>
     <Tab.Navigator
-      initialRouteName="Calendar"
+      initialRouteName="Home"
       screenOptions={{
         tabBarStyle: {
           backgroundColor: theme.tabBar.background,
@@ -142,6 +143,15 @@ const MainTabs = () => {
         options={{
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="today" size={24} color={color} style={{fontWeight: '300'}} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="AI"
+        component={AIReportScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="analytics" size={24} color={color} style={{fontWeight: '300'}} />
           ),
         }}
       />

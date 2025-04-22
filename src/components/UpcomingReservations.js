@@ -65,7 +65,15 @@ const ReservationCard = ({ item }) => {
   
   // Extract financial data
   const financialsObj = item?.financials || item?.financial || item;
-  const ownerPayout = financialsObj?.ownerPayout || item?.ownerPayout || 0;
+  const ownerPayout = parseFloat(financialsObj?.ownerPayout || 
+                     item?.ownerPayout || 
+                     item?.hostPayout || 
+                     item?.airbnbExpectedPayoutAmount || 
+                     financialsObj?.hostPayout ||
+                     financialsObj?.airbnbExpectedPayoutAmount ||
+                     item?.financialData?.ownerPayout ||
+                     item?.financialData?.hostPayout ||
+                     0);
   
   // Format dates
   const checkInDate = item?.checkIn || item?.arrivalDate || null;

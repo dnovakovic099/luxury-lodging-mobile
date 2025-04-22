@@ -363,7 +363,8 @@ const CalendarScreen = ({ navigation }) => {
               channelReservationId: res.channelReservationId || '',
               totalPrice: res.totalPrice || (res.financialData ? res.financialData.totalPaid : 0) || 0,
               // Additional financial fields
-              hostChannelFee: (res.financialData ? res.financialData.channelFee : 0) || res.channelFee || 0,
+              hostChannelFee: (res.hostChannelFee) || (res.channelFee) || 
+                              (res.financialData ? (res.financialData.hostChannelFee || res.financialData.channelFee) : 0) || 0,
               pmCommission: (res.financialData ? res.financialData.managementFeeAirbnb : 0) || 0,
               // Store the raw financialData object if available
               financialData: res.financialData || null,
@@ -572,15 +573,33 @@ const CalendarScreen = ({ navigation }) => {
       // Financial data for Guest Paid section
       nightlyRate: booking.baseRate ? booking.baseRate / (booking.nights || 1) : 0,
       cleaningFee: booking.cleaningFee || 0,
-      serviceFee: booking.serviceFee || booking.channelFee || 0,
+      serviceFee: booking.serviceFee || 
+                  booking.hostChannelFee || 
+                  booking.financialData?.hostChannelFee || 
+                  booking.financialData?.VRBOChannelFee || 
+                  booking.channelFee || 
+                  0,
       occupancyTaxes: booking.occupancyTaxes || booking.tourismTax || booking.cityTax || 0,
       guestTotal: booking.guestTotal || booking.totalPrice || 0,
       
       // Financial data for Host Payout section
       baseRate: parseFloat(booking.baseRate) || 0,
       processingFee: booking.financialData?.PaymentProcessing ? parseFloat(booking.financialData.PaymentProcessing) : 0,
-      channelFee: parseFloat(booking.channelFee || 0),
-      managementFee: booking.pmCommission ? parseFloat(booking.pmCommission) : 0,
+      channelFee: parseFloat(
+        booking.hostChannelFee || 
+        booking.financialData?.hostChannelFee || 
+        booking.financialData?.VRBOChannelFee ||
+        booking.channelFee || 
+        0
+      ),
+      managementFee: parseFloat(
+        booking.managementFee || 
+        booking.pmCommission || 
+        booking.financialData?.managementFee ||
+        booking.financialData?.pmCommission ||
+        booking.financialData?.managementFeeAirbnb ||
+        0
+      ),
       
       // Final payout
       hostPayout: parseFloat(booking.ownerPayout) || parseFloat(booking.airbnbExpectedPayoutAmount) || 0,

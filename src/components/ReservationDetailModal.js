@@ -82,16 +82,50 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
     return 0;
   };
 
+  // Log ALL possible channel fee data for debugging
+  console.log('COMPLETE RESERVATION FEE DATA:', {
+    // Direct properties
+    channelFee: reservation.channelFee,
+    hostChannelFee: reservation.hostChannelFee,
+    VRBOChannelFee: reservation.VRBOChannelFee,
+    serviceFee: reservation.serviceFee,
+    
+    // Nested in financialData
+    financialData_channelFee: reservation.financialData?.channelFee,
+    financialData_hostChannelFee: reservation.financialData?.hostChannelFee,
+    financialData_VRBOChannelFee: reservation.financialData?.VRBOChannelFee,
+    
+    // Raw values without parsing
+    channelFee_type: typeof reservation.channelFee,
+    hostChannelFee_type: typeof reservation.hostChannelFee,
+    
+    // Parsed values
+    parsed_channelFee: parseNumber(reservation.channelFee),
+    parsed_hostChannelFee: parseNumber(reservation.hostChannelFee)
+  });
+
   // Get the appropriate channel fee checking all possible sources
   const getChannelFee = () => {
-    return parseNumber(reservation.channelFee || 0);
+    return parseNumber(
+      reservation.hostChannelFee || 
+      reservation.financialData?.hostChannelFee || 
+      reservation.financialData?.VRBOChannelFee ||
+      reservation.channelFee || 
+      0
+    );
   };
-
-  // Log channel fee data for debugging - moved after parseNumber is defined
-  console.log('CHANNEL FEE DEBUG:', {
-    rawChannelFee: reservation.channelFee,
-    parsedValue: parseNumber(reservation.channelFee)
-  });
+  
+  // Get the appropriate management fee checking all possible sources
+  const getManagementFee = () => {
+    return parseNumber(
+      reservation.managementFee || 
+      reservation.pmCommission || 
+      reservation.financialData?.managementFee ||
+      reservation.financialData?.pmCommission ||
+      reservation.financialData?.managementFeeAirbnb ||
+      0
+    );
+  };
 
   // Calculate the base rate using a comprehensive formula
   const calculateBaseRate = () => {
@@ -433,7 +467,7 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
                 <View style={styles.financialRow}>
                   <Text style={styles.financialText}>Management Fee</Text>
                   <Text style={styles.financialValue}>
-                    {formatCurrency(parseNumber(reservation.managementFee))}
+                    {formatCurrency(getManagementFee())}
                   </Text>
                 </View>
                 
@@ -443,7 +477,7 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
                     {formatCurrency(
                       parseNumber(reservation.processingFee || reservation.paymentProcessingFee || 0) +
                       getChannelFee() +
-                      parseNumber(reservation.managementFee || 0)
+                      getManagementFee()
                     )}
                   </Text>
                 </View>

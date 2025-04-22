@@ -178,18 +178,39 @@ export function AuthProvider({ children }) {
       // Flatten the array of arrays
       let allUpcomingReservations = resultsArray.flat();
       
+      // Filter reservations by valid status
+      allUpcomingReservations = allUpcomingReservations.filter(res => {
+        const status = res?.status?.toLowerCase() || '';
+        // Only include reservations with confirmed, new, or modified status
+        return (status === 'confirmed' || status === 'new' || status === 'modified');
+      });
+      
       // Process the reservations to add listing names if missing
       allUpcomingReservations = allUpcomingReservations.map(res => {
         const listingId = res.listingId || res.listingMapId;
         const currentListing = listings.find(l => parseInt(l.id) === parseInt(listingId));
         const listingName = currentListing?.name || 'Unknown Property';
         
+        // Extract and normalize financial data
+        const ownerPayout = parseFloat(
+          res.ownerPayout || 
+          res.hostPayout || 
+          res.airbnbExpectedPayoutAmount || 
+          res.financialData?.ownerPayout || 
+          res.financialData?.hostPayout || 
+          0
+        );
+        
         return {
           ...res,
           listingId: listingId,
           listingMapId: listingId,
           listingName: res.listingName || listingName,
-          property: res.property || { name: listingName }
+          property: res.property || { name: listingName },
+          // Ensure financial data is always present and normalized
+          ownerPayout: ownerPayout,
+          hostPayout: parseFloat(res.hostPayout || 0),
+          airbnbExpectedPayoutAmount: parseFloat(res.airbnbExpectedPayoutAmount || 0)
         };
       });
       

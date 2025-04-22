@@ -465,6 +465,32 @@ const ReservationsScreen = ({ navigation }) => {
     // Log the complete reservation data
     console.log('COMPLETE RESERVATION DATA:', JSON.stringify(reservation, null, 2));
     
+    // Log all fee-related fields for debugging
+    console.log('RAW FEE FIELDS:', {
+      // Direct properties
+      channelFee: reservation.channelFee,
+      hostChannelFee: reservation.hostChannelFee,
+      VRBOChannelFee: reservation.VRBOChannelFee,
+      serviceFee: reservation.serviceFee,
+      
+      // Nested in financialData
+      financialData_channelFee: reservation.financialData?.channelFee,
+      financialData_hostChannelFee: reservation.financialData?.hostChannelFee,
+      
+      // Other potentially related fields
+      processingFee: reservation.processingFee,
+      paymentProcessingFee: reservation.paymentProcessingFee,
+      managementFee: reservation.managementFee,
+      pmCommission: reservation.pmCommission,
+      
+      // Extracted values from original code
+      extracted_channelFee: parseFloat(
+        reservation.channelFee || 
+        reservation.financialData?.channelFee ||
+        0
+      )
+    });
+    
     // Log the original reservation data to debug fee fields
     console.log('Raw reservation data for fees:', {
       processingFee: reservation.financialData?.PaymentProcessing,
