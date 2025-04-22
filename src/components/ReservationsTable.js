@@ -293,8 +293,6 @@ const ReservationsTable = ({
   // Sort the reservations based on the sortBy parameter
   const sortedReservations = React.useMemo(() => {
     if (!reservations || !reservations.length) return [];
-
-    console.log('reservations', reservations[0], sortBy);
     
     if (sortBy === 'revenue') {
       return [...reservations].sort((a, b) => {

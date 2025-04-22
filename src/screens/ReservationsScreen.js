@@ -134,8 +134,6 @@ const ReservationsScreen = ({ navigation }) => {
       setAllReservations(fixedReservations); // Also set allReservations
       setReservationsFromCache(true);
       
-      console.log(`Loaded ${fixedReservations.length} reservations from cache, allReservations is now set`);
-      
       return true;
     } catch (error) {
       console.error('Error loading reservations from cache:', error);
@@ -146,7 +144,6 @@ const ReservationsScreen = ({ navigation }) => {
   // Function to save reservations to cache
   const saveReservationsToCache = async () => {
     if (!allReservations || !Array.isArray(allReservations) || allReservations.length === 0) {
-      console.log('No reservations to cache');
       return;
     }
     
@@ -154,7 +151,6 @@ const ReservationsScreen = ({ navigation }) => {
       // Create a cache key for all reservations
       const cacheKey = `${RESERVATIONS_CACHE}_all`;
       
-      console.log(`Saving ${allReservations.length} reservations to cache`);
       await saveToCache(cacheKey, allReservations);
     } catch (error) {
       console.error('Error saving reservations to cache:', error);
@@ -218,8 +214,6 @@ const ReservationsScreen = ({ navigation }) => {
   
   // Handle listing selection
   const handleListingSelect = (selected) => {
-    console.log(`Listing selected: ${selected}`);
-    
     // Set the selected listing state
     setSelectedListing(selected);
     
@@ -230,7 +224,6 @@ const ReservationsScreen = ({ navigation }) => {
     );
     
     if (!hasReservations) {
-      console.log('No reservations cached yet, need to fetch from API first');
       setReservationsFromCache(false);
       setIsLoading(true);
       loadReservations().then(() => {
@@ -253,12 +246,9 @@ const ReservationsScreen = ({ navigation }) => {
     
     // Safety check - if no reservations are available at all
     if (!reservationsToFilter || reservationsToFilter.length === 0) {
-      console.log('No reservations to filter');
       setFilteredReservations([]);
       return;
     }
-    
-    console.log(`Filtering ${reservationsToFilter.length} reservations for property: ${selected}`);
     
     // If "all" is selected, just apply current sort and date filter
     if (selected === 'all') {
@@ -280,8 +270,6 @@ const ReservationsScreen = ({ navigation }) => {
       return potentialIds.some(id => id === selected);
     });
     
-    console.log(`Found ${filtered.length} reservations for property ${selected}`);
-    
     // Apply current sort and date filter to the filtered results
     const sortedAndFiltered = applySortAndDateFilter(filtered);
     setFilteredReservations(sortedAndFiltered);
@@ -289,8 +277,6 @@ const ReservationsScreen = ({ navigation }) => {
   
   // Function to apply date filtering
   const applyDateFilter = (date) => {
-    console.log(`Applying date filter: ${date ? format(date, 'yyyy-MM-dd') : 'none'}`);
-    
     // Get the reservations to filter - use filteredReservations as fallback
     const reservationsToFilter = (allReservations && allReservations.length > 0) 
       ? allReservations 
@@ -298,7 +284,6 @@ const ReservationsScreen = ({ navigation }) => {
     
     // Check if we have reservations to filter
     if (!reservationsToFilter || reservationsToFilter.length === 0) {
-      console.log('No reservations to filter');
       setShowDatePicker(false);
       return;
     }
@@ -308,7 +293,6 @@ const ReservationsScreen = ({ navigation }) => {
     
     // Apply property filter if needed
     if (selectedListing !== 'all') {
-      console.log(`Filtering by property: ${selectedListing}`);
       filtered = filtered.filter(item => {
         const potentialIds = [
           item.listingMapId?.toString(),
@@ -319,12 +303,10 @@ const ReservationsScreen = ({ navigation }) => {
         
         return potentialIds.some(id => id === selectedListing);
       });
-      console.log(`After property filter: ${filtered.length} reservations`);
     }
     
     // Apply date filter if provided
     if (date) {
-      console.log('Filtering by check-in date');
       try {
         // Normalize to midnight for date comparison
         const filterDate = startOfDay(date);
@@ -337,7 +319,6 @@ const ReservationsScreen = ({ navigation }) => {
           const checkInDate = startOfDay(new Date(checkInDateStr));
           return isSameDay(checkInDate, filterDate);
         });
-        console.log(`After date filter: ${filtered.length} reservations`);
       } catch (error) {
         console.error('Error filtering by date:', error);
       }
@@ -369,11 +350,8 @@ const ReservationsScreen = ({ navigation }) => {
   const applySortAndDateFilter = (reservations) => {
     // Safety check for empty arrays
     if (!reservations || !Array.isArray(reservations) || reservations.length === 0) {
-      console.log('No reservations to sort or filter');
       return [];
     }
-    
-    console.log(`Applying filters to ${reservations.length} reservations`);
     
     let result = [...reservations];
     
@@ -389,24 +367,20 @@ const ReservationsScreen = ({ navigation }) => {
         
         return potentialIds.some(id => id === selectedListing);
       });
-      console.log(`After property filter: ${result.length} reservations`);
     }
     
     // Apply date filter
     if (startDate) {
       const filterDate = new Date(startDate.toDateString());
-      console.log('Filtering by check-in date >=', format(filterDate, 'yyyy-MM-dd'));
       
       result = result.filter(res => {
         try {
           const checkInDate = new Date(new Date(res.arrivalDate || res.checkInDate).toDateString());
           return checkInDate >= filterDate;
         } catch (e) {
-          console.log('Error filtering date for reservation:', res.id);
           return false;
         }
       });
-      console.log(`After date filter: ${result.length} reservations`);
     }
     
     // Apply sort
@@ -621,9 +595,6 @@ const ReservationsScreen = ({ navigation }) => {
       });
       
       // Store ALL reservations in memory
-      console.log(`Setting allReservations with ${transformedReservations.length} items`);
-      
-      // Explicitly clone the array and all objects to avoid reference issues
       const reservationsToStore = JSON.parse(JSON.stringify(transformedReservations));
       setAllReservations(reservationsToStore);
       
@@ -651,17 +622,13 @@ const ReservationsScreen = ({ navigation }) => {
   useEffect(() => {
     // Only load initial data if we have no reservations yet
     if (allReservations.length === 0 && listings && listings.length > 0) {
-      console.log('Initial load - fetching all reservations');
-      
       // First try to load from cache with specific key for "all"
       loadReservationsFromCache().then(hasCachedData => {
         if (!hasCachedData) {
           // No cached data, fetch fresh
-          console.log('No cache data found, loading from API');
           setIsLoading(true);
           loadReservations();
         } else {
-          console.log('Successfully loaded data from cache');
           // Make sure to apply any property filter if needed
           if (selectedListing !== 'all') {
             filterReservationsByProperty(selectedListing);
@@ -675,11 +642,17 @@ const ReservationsScreen = ({ navigation }) => {
   useEffect(() => {
     // Only run if we have reservations and a selectedListing
     if (allReservations.length > 0 && selectedListing) {
-      console.log('Applying filter after reservations or selected property changed');
       filterReservationsByProperty(selectedListing);
     }
   }, [allReservations, selectedListing]);
   
+  // Effect to save reservations to cache whenever they change
+  useEffect(() => {
+    if (allReservations && allReservations.length > 0) {
+      saveReservationsToCache();
+    }
+  }, [allReservations]); // Only depend on allReservations changes
+
   const totalBookings = filteredReservations.length;
   
   // Calculate financial totals from the filtered reservations
@@ -768,66 +741,6 @@ const ReservationsScreen = ({ navigation }) => {
   };
 
   const handleRowPress = (reservation) => {
-    // Log the complete reservation data
-    console.log('COMPLETE RESERVATION DATA:', JSON.stringify(reservation, null, 2));
-    
-    // Log all fee-related fields for debugging
-    console.log('RAW FEE FIELDS:', {
-      // Direct properties
-      channelFee: reservation.channelFee,
-      hostChannelFee: reservation.hostChannelFee,
-      VRBOChannelFee: reservation.VRBOChannelFee,
-      serviceFee: reservation.serviceFee,
-      
-      // Nested in financialData
-      financialData_channelFee: reservation.financialData?.channelFee,
-      financialData_hostChannelFee: reservation.financialData?.hostChannelFee,
-      
-      // Other potentially related fields
-      processingFee: reservation.processingFee,
-      paymentProcessingFee: reservation.paymentProcessingFee,
-      managementFee: reservation.managementFee,
-      pmCommission: reservation.pmCommission,
-      
-      // Extracted values from original code
-      extracted_channelFee: parseFloat(
-        reservation.channelFee || 
-        reservation.financialData?.channelFee ||
-        0
-      )
-    });
-    
-    // Log the original reservation data to debug fee fields
-    console.log('Raw reservation data for fees:', {
-      processingFee: reservation.financialData?.PaymentProcessing,
-      paymentProcessingFee: reservation.paymentProcessingFee,
-      processingFeeField: reservation.processingFee,
-      hostChannelFee: reservation.hostChannelFee,
-      channelFee: reservation.channelFee,
-      managementFee: reservation.managementFee,
-      pmCommission: reservation.pmCommission,
-      financialData: reservation.financialData
-    });
-    
-    // Add more detailed debug info for hostChannelFee
-    console.log('CHANNEL FEE DETAILED DEBUG:', {
-      hostChannelFee: {
-        value: reservation.hostChannelFee,
-        type: typeof reservation.hostChannelFee,
-        parsedValue: parseFloat(reservation.hostChannelFee || 0)
-      },
-      channelFee: {
-        value: reservation.channelFee,
-        type: typeof reservation.channelFee,
-        parsedValue: parseFloat(reservation.channelFee || 0)
-      },
-      financialDataHostChannelFee: {
-        value: reservation.financialData?.hostChannelFee,
-        type: typeof reservation.financialData?.hostChannelFee,
-        parsedValue: parseFloat(reservation.financialData?.hostChannelFee || 0)
-      }
-    });
-    
     // Enhance the reservation data for the modal with better financial data formatting
     const enhancedReservation = {
       ...reservation,
@@ -898,20 +811,12 @@ const ReservationsScreen = ({ navigation }) => {
       financialData: reservation.financialData || {}
     };
     
-    // Log the enhanced financial data to verify what values are being used
-    console.log('Enhanced financial data:', {
-      processingFee: enhancedReservation.processingFee,
-      channelFee: enhancedReservation.channelFee,
-      managementFee: enhancedReservation.managementFee
-    });
-    
     setSelectedReservation(enhancedReservation);
     setModalVisible(true);
   };
 
   // Function to handle start date selection
   const handleStartDateSelect = (date) => {
-    console.log(`Start date selected: ${date ? format(date, 'yyyy-MM-dd') : 'none'}`);
     setStartDate(date);
     // Apply filter for this specific date
     applyDateFilter(date);
@@ -919,7 +824,6 @@ const ReservationsScreen = ({ navigation }) => {
 
   // Function to handle end date selection
   const handleEndDateSelect = (date) => {
-    console.log(`End date selected: ${date ? format(date, 'yyyy-MM-dd') : 'none'}`);
     setEndDate(date);
     // Currently we're filtering by just the start date
     // To support date ranges, we'd modify applyDateFilter to use both dates
@@ -927,14 +831,11 @@ const ReservationsScreen = ({ navigation }) => {
 
   // Function to reset all filters
   const resetFilters = () => {
-    console.log('Resetting all filters');
     setStartDate(null);
     setEndDate(null);
     
     // Show all reservations for the current listing
     if (allReservations && allReservations.length > 0) {
-      console.log('Resetting to cached reservations');
-      
       // Apply property filter if needed
       if (selectedListing !== 'all') {
         const filtered = allReservations.filter(item => {
@@ -978,11 +879,9 @@ const ReservationsScreen = ({ navigation }) => {
 
   // Handle sort selection
   const handleSortSelect = (method) => {
-    console.log(`Sorting by ${method}`);
     setSortBy(method);
     
     if (allReservations.length === 0) {
-      console.log('No reservations to sort');
       return;
     }
     
@@ -1011,7 +910,6 @@ const ReservationsScreen = ({ navigation }) => {
           const checkInDate = new Date(new Date(res.arrivalDate || res.checkInDate).toDateString());
           return checkInDate >= filterDate;
         } catch (e) {
-          console.log('Error filtering date for reservation:', res.id);
           return false;
         }
       });
@@ -1034,14 +932,6 @@ const ReservationsScreen = ({ navigation }) => {
     
     setFilteredReservations(filtered);
   };
-
-  // Effect to save reservations to cache whenever they change
-  useEffect(() => {
-    if (allReservations && allReservations.length > 0) {
-      console.log(`Reservations changed, saving ${allReservations.length} to cache`);
-      saveReservationsToCache();
-    }
-  }, [allReservations]); // Only depend on allReservations changes
 
   if ((isLoading || authLoading) && !refreshing && !reservationsFromCache) {
     return (
@@ -1203,8 +1093,6 @@ const ReservationsScreen = ({ navigation }) => {
           <TouchableOpacity 
             style={[styles.applyButton, { backgroundColor: GOLD.primary }]} 
             onPress={() => {
-              console.log("Apply button pressed with date:", startDate ? format(startDate, 'yyyy-MM-dd') : 'none');
-              
               // Re-apply filter if date is set
               if (startDate) {
                 applyDateFilter(startDate);
@@ -1309,7 +1197,6 @@ const ReservationsScreen = ({ navigation }) => {
             onPress={() => {
               // Force toggle - if date, switch to revenue, otherwise switch to date
               const newSortBy = sortBy === 'date' ? 'revenue' : 'date';
-              console.log('SORT BUTTON PRESSED - toggling from', sortBy, 'to', newSortBy);
               handleSortSelect(newSortBy);
             }}
             disabled={loading} // Disable while sorting is in progress
@@ -1384,8 +1271,6 @@ const ReservationsScreen = ({ navigation }) => {
                 navigation={navigation}
                 onRowPress={handleRowPress}
               />
-              {console.log(`Rendering table with ${filteredReservations.length} reservations, sorted by ${sortBy}, date filter: ${startDate ? format(startDate, 'yyyy-MM-dd') : 'none'}`)}
-              {console.log(`First reservation: ${filteredReservations[0]?.propertyName || 'N/A'}, ownerPayout: ${filteredReservations[0]?.ownerPayout || 'N/A'}, arrival: ${filteredReservations[0]?.arrivalDate ? format(new Date(filteredReservations[0].arrivalDate), 'yyyy-MM-dd') : 'N/A'}`)}
             </>
           )}
         </View>
