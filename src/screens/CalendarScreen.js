@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,13 @@ import PropertyPicker from '../components/PropertyPicker';
 import { useAuth } from '../context/AuthContext';
 import { getReservationsWithFinancialData } from '../services/api';
 import ReservationDetailModal from '../components/ReservationDetailModal';
+import { saveToCache, loadFromCache, CACHE_KEYS } from '../utils/cacheUtils';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Cache key for calendar bookings
+const CALENDAR_BOOKINGS_CACHE = 'cache_calendar_bookings';
+// Debug flag for cache logging
+const DEBUG_CACHE = false; // Disable debug logs
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DAY_CELL_SIZE = Math.floor(SCREEN_WIDTH / 7);
@@ -33,18 +40,38 @@ const VALID_STATUSES = ['new', 'modified', 'ownerStay'];
 // Color for bookings
 const BOOKING_COLOR = '#FF385C';
 
+// Memoize date calculations to improve performance
+const useMemoizedDateFunctions = () => {
+  // Memoize isSameDay for better performance
+  const memoizedIsSameDay = React.useCallback((date1, date2) => {
+    if (!date1 || !date2) return false;
+    return date1.getDate() === date2.getDate() && 
+           date1.getMonth() === date2.getMonth() && 
+           date1.getFullYear() === date2.getFullYear();
+  }, []);
+
+  return { memoizedIsSameDay };
+};
+
 const CalendarScreen = ({ navigation }) => {
   const { listings } = useAuth();
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [allMonths, setAllMonths] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [calendarLoading, setCalendarLoading] = useState(false);
   const scrollViewRef = useRef(null);
   const [currentMonthIndex, setCurrentMonthIndex] = useState(0);
   
   // Add state for the modal
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedReservation, setSelectedReservation] = useState(null);
+  
+  // Add state for caching
+  const [bookingsFromCache, setBookingsFromCache] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const { memoizedIsSameDay } = useMemoizedDateFunctions();
 
   // Format listings for property picker
   const formattedListings = React.useMemo(() => {
@@ -102,9 +129,37 @@ const CalendarScreen = ({ navigation }) => {
   // Effect to fetch reservations when the selected property changes
   useEffect(() => {
     if (selectedProperty && allMonths.length > 0) {
-      fetchReservations();
+      // First try to load from cache, then fetch from API
+      loadBookingsFromCache().then(hasCachedData => {
+        if (DEBUG_CACHE) console.log(`Calendar: Cache load attempt result: ${hasCachedData ? 'Success' : 'Failed'}`);
+        
+        // If we didn't get valid cache, fetch fresh data
+        if (!hasCachedData) {
+          fetchReservations();
+        } else {
+          // Ensure we're not in loading state when we have cached data
+          setIsLoading(false);
+          
+          // Even with cached data, fetch fresh data in the background if it's potentially stale
+          const potentiallyStaleCache = true; // Always refresh in background for now
+          if (potentiallyStaleCache) {
+            // Slight delay before triggering background fetch to ensure UI is responsive first
+            setTimeout(() => {
+              if (DEBUG_CACHE) console.log('Calendar: Performing background fetch to refresh potentially stale data');
+              fetchReservations();
+            }, 1500); // Increased delay to ensure UI has time to render cached data
+          }
+        }
+      });
     }
   }, [selectedProperty, allMonths]);
+
+  // Effect to save bookings to cache when they change
+  useEffect(() => {
+    if (bookings && bookings.length > 0) {
+      saveBookingsToCache();
+    }
+  }, [bookings]);
 
   const generateCalendarMonths = () => {
     const months = [];
@@ -169,8 +224,18 @@ const CalendarScreen = ({ navigation }) => {
   const fetchReservations = async () => {
     if (!selectedProperty) return;
     
-    setIsLoading(true);
+    // Benchmark the fetch operation if debug is enabled
+    const startTime = DEBUG_CACHE ? Date.now() : 0;
+    
+    // Only show full page loading if we don't have cached data
+    const shouldShowLoading = !bookingsFromCache;
+    if (shouldShowLoading) {
+      setIsLoading(true);
+    }
+    
     try {
+      if (DEBUG_CACHE) console.log('Calendar: Starting reservation fetch for property', selectedProperty);
+      
       // Calculate date range for 6 months before and after
       const today = new Date();
       
@@ -198,13 +263,25 @@ const CalendarScreen = ({ navigation }) => {
       // Fetch reservations from API
       const result = await getReservationsWithFinancialData(params);
       
-      // Count reservations by status
+      if (DEBUG_CACHE) {
+        const fetchTime = Date.now() - startTime;
+        console.log(`Calendar: API fetch completed in ${fetchTime}ms`);
+      }
+      
+      // Count reservations by status for debugging
       const statusCounts = {};
       if (result?.reservations && Array.isArray(result.reservations)) {
-        result.reservations.forEach(res => {
-          const status = res.status || 'unknown';
-          statusCounts[status] = (statusCounts[status] || 0) + 1;
-        });
+        if (DEBUG_CACHE) {
+          // Count by status for debugging
+          result.reservations.forEach(res => {
+            const status = res.status || 'unknown';
+            statusCounts[status] = (statusCounts[status] || 0) + 1;
+          });
+          console.log('Calendar: Reservation status counts:', statusCounts);
+        }
+        
+        // Transform processing start time
+        const transformStart = DEBUG_CACHE ? Date.now() : 0;
         
         // Transform API data to our booking format with strict status and date filtering
         const transformedBookings = result.reservations
@@ -221,14 +298,6 @@ const CalendarScreen = ({ navigation }) => {
             if (hasArrival) {
               const arrivalDate = new Date(res.arrivalDate || res.checkInDate);
               isWithinDateRange = arrivalDate >= startDate && arrivalDate <= endDate;
-              
-              if (!isWithinDateRange) {
-                // Filtering out reservation with arrival date outside date range
-              }
-            }
-            
-            if (!hasValidStatus) {
-              // Filtering out reservation with invalid status
             }
             
             // Only include reservations with valid dates, status, and within date range
@@ -260,66 +329,32 @@ const CalendarScreen = ({ navigation }) => {
             // Determine the channel color using channelName
             let channelType = 'default';
             
-            if (res.channelName) {
-              const channelNameLower = String(res.channelName).toLowerCase();
-              
-              if (channelNameLower.includes('airbnb')) {
-                channelType = 'airbnb';
-              } else if (channelNameLower.includes('vrbo') || 
-                         channelNameLower.includes('homeaway') ||
-                         channelNameLower.includes('expedia')) {
-                channelType = 'vrbo';
-              } else {
-                // Unrecognized channel name
-              }
-            } else {
-              // Fallback to other fields if channelName is not available
-              
-              // Check source type
-              if (res.sourceType) {
-                const sourceTypeLower = String(res.sourceType).toLowerCase();
-                if (sourceTypeLower.includes('airbnb')) {
-                  channelType = 'airbnb';
-                } else if (sourceTypeLower.includes('vrbo') || 
-                            sourceTypeLower.includes('homeaway') ||
-                            sourceTypeLower.includes('expedia')) {
-                  channelType = 'vrbo';
-                }
-              }
-              
-              // Check source name
-              if (channelType === 'default' && res.sourceName) {
-                const sourceNameLower = String(res.sourceName).toLowerCase();
-                if (sourceNameLower.includes('airbnb')) {
-                  channelType = 'airbnb';
-                } else if (sourceNameLower.includes('vrbo') || 
-                            sourceNameLower.includes('homeaway') ||
-                            sourceNameLower.includes('expedia')) {
-                  channelType = 'vrbo';
-                }
-              }
-              
-              // Final fallback to channel
-              if (channelType === 'default' && res.channel) {
-                const channelLower = String(res.channel).toLowerCase();
-                if (channelLower.includes('airbnb')) {
-                  channelType = 'airbnb';
-                } else if (channelLower.includes('vrbo') || 
-                            channelLower.includes('homeaway') ||
-                            channelLower.includes('expedia')) {
-                  channelType = 'vrbo';
-                }
-              }
+            // Use a more efficient channel detection logic
+            const lowerChannelName = res.channelName?.toLowerCase() || '';
+            const lowerSourceType = res.sourceType?.toLowerCase() || '';
+            const lowerSourceName = res.sourceName?.toLowerCase() || '';
+            const lowerChannel = res.channel?.toLowerCase() || '';
+            
+            // Check for Airbnb in any of the fields
+            if (lowerChannelName.includes('airbnb') || 
+                lowerSourceType.includes('airbnb') || 
+                lowerSourceName.includes('airbnb') || 
+                lowerChannel.includes('airbnb')) {
+              channelType = 'airbnb';
+            }
+            // Check for VRBO/Expedia in any of the fields
+            else if (lowerChannelName.includes('vrbo') || lowerChannelName.includes('homeaway') || lowerChannelName.includes('expedia') ||
+                    lowerSourceType.includes('vrbo') || lowerSourceType.includes('homeaway') || lowerSourceType.includes('expedia') ||
+                    lowerSourceName.includes('vrbo') || lowerSourceName.includes('homeaway') || lowerSourceName.includes('expedia') ||
+                    lowerChannel.includes('vrbo') || lowerChannel.includes('homeaway') || lowerChannel.includes('expedia')) {
+              channelType = 'vrbo';
             }
             
             // Use the appropriate color based on channel
             const bookingColor = CHANNEL_COLORS[channelType];
             
-            // Log financial fields for tracing owner payout
-            if (res.id === 37265566 || res.reservationId === 37265566) {
-              // Remove debugging console logs
-            }
-            
+            // Create a streamlined booking object with only the essential fields
+            // to reduce memory usage and improve performance
             return {
               id: res.id || res.reservationId,
               startDate: adjustedStartDate,
@@ -329,8 +364,8 @@ const CalendarScreen = ({ navigation }) => {
               status: res.status,
               channel: channelType,
               channelName: res.channelName || '',
-              sourceType: res.sourceType || '',
-              // Map all financial data and reservation details
+              
+              // Essential guest information
               adults: res.adults || res.numberOfGuests || 1,
               infants: res.infants || 0,
               children: res.children || 0,
@@ -338,69 +373,90 @@ const CalendarScreen = ({ navigation }) => {
               confirmationCode: res.confirmationCode || '',
               reservationDate: res.reservationDate || res.bookingDate || '',
               phone: res.phone || '',
-              // Airbnb specific fields
-              airbnbCancellationPolicy: res.airbnbCancellationPolicy || '',
-              airbnbExpectedPayoutAmount: res.airbnbExpectedPayoutAmount || 0,
-              airbnbListingBasePrice: res.airbnbListingBasePrice || 0,
-              airbnbListingCancellationHostFee: res.airbnbListingCancellationHostFee || 0,
-              airbnbListingCancellationPayout: res.airbnbListingCancellationPayout || 0,
-              airbnbListingCleaningFee: res.airbnbListingCleaningFee || 0,
-              airbnbListingHostFee: res.airbnbListingHostFee || 0,
-              airbnbListingSecurityPrice: res.airbnbListingSecurityPrice || 0,
-              airbnbOccupancyTaxAmountPaidToHost: res.airbnbOccupancyTaxAmountPaidToHost || 0,
-              airbnbTotalPaidAmount: res.airbnbTotalPaidAmount || 0,
-              airbnbTransientOccupancyTaxPaidAmount: res.airbnbTransientOccupancyTaxPaidAmount || 0,
-              // Generic financial fields
+              
+              // Essential financial data
               ownerPayout: res.ownerPayout || 0,
-              // Properly extract financial data from either direct fields or nested financialData
               baseRate: res.baseRate || res.airbnbListingBasePrice || (res.financialData ? res.financialData.baseRate : 0) || 0,
               cleaningFee: res.cleaningFee || res.airbnbListingCleaningFee || (res.financialData ? res.financialData.cleaningFeeValue : 0) || 0,
-              serviceFee: res.serviceFee || res.airbnbListingHostFee || (res.financialData ? res.financialData.serviceFee : 0) || 0,
-              occupancyTaxes: res.taxAmount || res.airbnbTransientOccupancyTaxPaidAmount || (res.financialData ? res.financialData.transientOccupancyTax : 0) || 0,
-              tourismTax: (res.financialData ? res.financialData.tourismFee : 0) || 0,
-              cityTax: (res.financialData ? res.financialData.cityTax : 0) || 0,
-              guestTotal: res.totalPrice || res.airbnbTotalPaidAmount || (res.financialData ? res.financialData.totalPaid : 0) || 0,
-              channelReservationId: res.channelReservationId || '',
-              totalPrice: res.totalPrice || (res.financialData ? res.financialData.totalPaid : 0) || 0,
-              // Additional financial fields
-              hostChannelFee: (res.hostChannelFee) || (res.channelFee) || 
-                              (res.financialData ? (res.financialData.hostChannelFee || res.financialData.channelFee) : 0) || 0,
-              pmCommission: (res.financialData ? res.financialData.managementFeeAirbnb : 0) || 0,
-              // Store the raw financialData object if available
-              financialData: res.financialData || null,
+              
+              // Store minimal financial data
+              financialData: res.financialData ? {
+                baseRate: res.financialData.baseRate,
+                cleaningFeeValue: res.financialData.cleaningFeeValue,
+                managementFee: res.financialData.managementFee
+              } : null,
             };
           })
           .filter(booking => booking !== null);
         
-        // Final verification that all bookings have valid statuses
-        const validBookings = transformedBookings.filter(booking => {
-          if (!booking.status || !VALID_STATUSES.includes(booking.status)) {
-            console.error(`WARNING: Invalid booking status "${booking.status}" slipped through filtering - ID: ${booking.id}`);
-            return false;
-          }
-          return true;
-        });
-        
-        if (validBookings.length !== transformedBookings.length) {
-          console.error(`WARNING: Found ${transformedBookings.length - validBookings.length} bookings with invalid status after filtering`);
+        if (DEBUG_CACHE) {
+          const transformTime = Date.now() - transformStart;
+          console.log(`Calendar: Data transformation completed in ${transformTime}ms`);
+          console.log(`Calendar: Transformed ${transformedBookings.length} valid bookings`);
         }
         
-        setBookings(validBookings);
+        setBookings(transformedBookings);
+        
+        // Save to cache after successful fetch
+        if (transformedBookings.length > 0) {
+          setTimeout(() => saveBookingsToCache(), 10); // Slight delay to not block the UI
+        }
       } else {
         // Handle no reservations or invalid response
+        if (DEBUG_CACHE) console.log('Calendar: No reservations returned from API or invalid response');
         setBookings([]);
       }
     } catch (error) {
-      console.error('Error fetching reservations:', error);
-      setBookings([]);
+      console.error('Calendar: Error fetching reservations:', error);
+      
+      // If we have no cached data or fetching failed, set empty bookings
+      if (!bookingsFromCache) {
+        setBookings([]);
+      }
     } finally {
+      // Always set loading to false when fetch completes
       setIsLoading(false);
+      
+      if (DEBUG_CACHE) {
+        const totalTime = Date.now() - startTime;
+        console.log(`Calendar: Total fetch & processing completed in ${totalTime}ms`);
+      }
+    }
+  };
+
+  // Function to refresh bookings data
+  const refreshBookings = async () => {
+    try {
+      // Signal refresh is happening, but don't block UI with full loading
+      setRefreshing(true);
+      
+      // First try to load from cache to show data immediately
+      const loadedFromCache = await loadBookingsFromCache();
+      
+      // If we have cached data, it's already displayed thanks to the loadBookingsFromCache function
+      if (loadedFromCache) {
+        // Just fetch fresh data in background after a small delay to let UI update with cache
+        setTimeout(() => {
+          // When fetching with cached data, don't show loading indicators
+          fetchReservations().finally(() => {
+            setRefreshing(false);
+          });
+        }, 100);
+      } else {
+        // No cached data, fetch normally but maintain mini loading indicator
+        await fetchReservations();
+        setRefreshing(false);
+      }
+    } catch (error) {
+      console.error('Error refreshing bookings:', error);
+      setRefreshing(false);
     }
   };
 
   const handlePropertyChange = (propertyId) => {
+    // Reset cached state when property changes
+    setBookingsFromCache(false);
     setSelectedProperty(propertyId);
-    // Reservations will be fetched by the useEffect
   };
 
   const getDaysInMonth = (date) => {
@@ -423,16 +479,8 @@ const CalendarScreen = ({ navigation }) => {
 
   const daysOfWeek = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
-  // Compare dates ignoring time
-  const isSameDay = (date1, date2) => {
-    if (!date1 || !date2) return false;
-    
-    return (
-      date1.getFullYear() === date2.getFullYear() &&
-      date1.getMonth() === date2.getMonth() &&
-      date1.getDate() === date2.getDate()
-    );
-  };
+  // Replace existing isSameDay function with memoized version
+  const isSameDay = memoizedIsSameDay;
 
   // Check if date falls within a booking
   const getBookingForDate = (date) => {
@@ -620,7 +668,8 @@ const CalendarScreen = ({ navigation }) => {
     setModalVisible(true);
   };
 
-  const renderDay = (date, month) => {
+  // Optimize renderDay for better performance
+  const renderDay = React.useMemo(() => (date, month) => {
     if (!date) return <View style={styles.emptyDay} />;
     
     const dayNum = date.getDate();
@@ -690,7 +739,7 @@ const CalendarScreen = ({ navigation }) => {
         )}
       </View>
     );
-  };
+  }, [bookings, selectedProperty]);
 
   const renderMonthCalendar = (monthDate) => {
     const days = getDaysInMonth(monthDate);
@@ -745,6 +794,146 @@ const CalendarScreen = ({ navigation }) => {
     return Math.max(1, differenceInDays + 1);
   };
 
+  // Optimize bookings processing by reducing unnecessary operations
+  const loadBookingsFromCache = async () => {
+    try {
+      if (DEBUG_CACHE) console.log('Calendar: Attempting to load bookings from cache...');
+      
+      // Create a cache key that includes the property id
+      const cacheKey = `${CALENDAR_BOOKINGS_CACHE}_${selectedProperty}`;
+      
+      // Get the data in a single operation
+      const cachedBookings = await loadFromCache(cacheKey);
+      
+      if (!cachedBookings || !Array.isArray(cachedBookings) || cachedBookings.length === 0) {
+        if (DEBUG_CACHE) console.log('Calendar: No valid bookings in cache');
+        return false;
+      }
+      
+      if (DEBUG_CACHE) {
+        console.log('Calendar: Loaded bookings from cache successfully');
+        console.log('Calendar: Cached bookings count:', cachedBookings.length);
+      }
+      
+      // Convert all date strings to Date objects in a single pass
+      // This is faster than batch processing with setTimeout delays
+      const fixedBookings = cachedBookings.map(booking => ({
+        ...booking,
+        startDate: booking.startDate ? new Date(booking.startDate) : null,
+        endDate: booking.endDate ? new Date(booking.endDate) : null
+      }));
+      
+      // Validate that we have proper date objects
+      const hasValidBookings = fixedBookings.some(booking => 
+        booking.startDate instanceof Date && 
+        booking.endDate instanceof Date &&
+        !isNaN(booking.startDate.getTime()) &&
+        !isNaN(booking.endDate.getTime())
+      );
+      
+      if (!hasValidBookings) {
+        if (DEBUG_CACHE) console.log('Calendar: Cache exists but dates are invalid after parsing');
+        return false;
+      }
+      
+      // Critical: First set not loading, then update bookings state
+      // This ensures the UI updates with cached data before any potential re-renders
+      setIsLoading(false);
+      setBookingsFromCache(true);
+      
+      // Update state with cached bookings immediately
+      setBookings(fixedBookings);
+      
+      if (DEBUG_CACHE) console.log('Calendar: Successfully set bookings from cache');
+      return true;
+    } catch (error) {
+      console.error('Calendar: Error loading bookings from cache:', error);
+      return false;
+    }
+  };
+  
+  // Optimize saving bookings to cache
+  const saveBookingsToCache = async () => {
+    try {
+      if (!selectedProperty || !bookings || !Array.isArray(bookings) || bookings.length === 0) {
+        if (DEBUG_CACHE) console.log('Calendar: Not saving bookings to cache - invalid data');
+        return;
+      }
+      
+      if (DEBUG_CACHE) console.log('Calendar: Saving bookings to cache...');
+      
+      // Create a cache key that includes the property id
+      const cacheKey = `${CALENDAR_BOOKINGS_CACHE}_${selectedProperty}`;
+      
+      // Save to cache with the proper key
+      await saveToCache(cacheKey, bookings);
+      
+      if (DEBUG_CACHE) console.log('Calendar: Saved bookings to cache successfully');
+    } catch (error) {
+      console.error('Calendar: Error saving bookings to cache:', error);
+    }
+  };
+
+  // Force refresh all calendar data
+  const forceRefreshCalendarData = async () => {
+    try {
+      // Clear calendar cache
+      if (DEBUG_CACHE) console.log('Calendar: Clearing calendar cache...');
+      await clearCache(`${CALENDAR_BOOKINGS_CACHE}_${selectedProperty}`);
+      
+      setBookingsFromCache(false);
+      setRefreshing(true);
+      
+      // Fetch new bookings
+      await fetchBookingsForCalendar();
+      
+      setRefreshing(false);
+    } catch (error) {
+      console.error('Error refreshing calendar data:', error);
+      setRefreshing(false);
+    }
+  };
+  
+  // Optimize the fetchBookingsForCalendar function
+  const fetchBookingsForCalendar = useCallback(async () => {
+    if (!selectedProperty) return;
+    
+    try {
+      // First try to load from cache - critical to load cache before setting any loading states
+      const loadedFromCache = await loadBookingsFromCache();
+      
+      // Only show loading indicators if we don't have cached data
+      if (!loadedFromCache) {
+        // No cache, set loading states
+        setCalendarLoading(true);
+        setIsLoading(true);
+        
+        // No cache, fetch from API with loading indicators shown
+        await fetchReservations();
+        
+        // Clear loading states after fetch completes
+        setCalendarLoading(false);
+        setIsLoading(false);
+      } else {
+        // We have cache, don't show loading indicators
+        // and fetch in the background after a short delay
+        setTimeout(() => {
+          // Don't set isLoading to true here - we already have data to show
+          fetchReservations().finally(() => {
+            // Ensure loading indicators are cleared when done
+            setCalendarLoading(false);
+            setIsLoading(false);
+          });
+        }, 500);
+      }
+    } catch (error) {
+      console.error('Error fetching bookings for calendar:', error);
+      // Always clear loading states on error
+      setCalendarLoading(false);
+      setIsLoading(false);
+    }
+  }, [selectedProperty]);
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -761,9 +950,24 @@ const CalendarScreen = ({ navigation }) => {
             />
           </View>
         </View>
+        
+        {/* Improved refresh button with loading indicator and long-press for force refresh */}
+        <TouchableOpacity 
+          onPress={refreshBookings}
+          onLongPress={forceRefreshCalendarData}
+          delayLongPress={800}
+          style={styles.refreshButton}
+        >
+          {isLoading ? (
+            <ActivityIndicator size="small" color="#333" />
+          ) : (
+            <Icon name="refresh" size={24} color="#333" />
+          )}
+        </TouchableOpacity>
       </View>
       
-      {isLoading ? (
+      {/* Render condition - now prioritizing cached data display */}
+      {(isLoading && !bookingsFromCache) ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#FF385C" />
           <Text style={styles.loadingText}>Loading reservations...</Text>
@@ -774,6 +978,14 @@ const CalendarScreen = ({ navigation }) => {
           style={styles.scrollView}
           showsVerticalScrollIndicator={true}
         >
+          {/* Small loading indicator when refreshing with cached data */}
+          {/* {(isLoading || refreshing) && bookingsFromCache && (
+            <View style={styles.miniLoadingContainer}>
+              <ActivityIndicator size="small" color="#FF385C" />
+              <Text style={styles.miniLoadingText}>Updating in background...</Text>
+            </View>
+          )} */}
+          
           {allMonths.map((monthDate, index) => (
             <React.Fragment key={index}>
               {renderMonthCalendar(monthDate)}
@@ -977,6 +1189,31 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
     marginLeft: 4,
+  },
+  refreshButton: {
+    padding: 8,
+    marginRight: 8,
+  },
+  miniLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    margin: 8,
+    alignSelf: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 2,
+  },
+  miniLoadingText: {
+    fontSize: 14,
+    color: '#777',
+    marginLeft: 8,
   },
 });
 

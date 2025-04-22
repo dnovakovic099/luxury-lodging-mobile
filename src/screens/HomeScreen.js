@@ -25,6 +25,13 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { getListingFinancials, getMonthlyRevenueData } from '../services/api';
 import UpcomingReservations from '../components/UpcomingReservations';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  saveToCache,
+  loadFromCache,
+  clearCache,
+  CACHE_KEYS
+} from '../utils/cacheUtils';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Gold color constants for consistency
 const GOLD = {
@@ -33,6 +40,12 @@ const GOLD = {
   light: 'rgba(182, 148, 76, 0.15)',
   gradient: '#D4AF37'
 };
+
+// Cache keys
+const METRICS_CACHE = CACHE_KEYS.MONTHLY_REVENUE; // Use the standardized key from cacheUtils
+const UPCOMING_RESERVATIONS_CACHE = CACHE_KEYS.UPCOMING_RESERVATIONS; // Use the standardized key from cacheUtils
+// Set debug flag to false
+const DEBUG_CACHE = false;
 
 // Helper to get time of day greeting
 const getGreeting = () => {
@@ -62,7 +75,7 @@ const HomeScreen = ({ navigation }) => {
     signOut, 
     userData,
     fetchUpcomingReservations, 
-    upcomingReservationsLoading 
+    upcomingReservationsLoading
   } = useAuth();
   const { theme: appTheme, isDarkMode, toggleTheme } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
@@ -120,7 +133,12 @@ const HomeScreen = ({ navigation }) => {
       authLoading,
       listingsCount: listings?.length
     });
-  }, []);
+    
+    // Check if we still have metrics cache after sign-in
+    if (userData && !authLoading) {
+      checkCachePersistence();
+    }
+  }, [userData, authLoading]);
   
   // Log when auth loading state changes
   useEffect(() => {
@@ -132,6 +150,34 @@ const HomeScreen = ({ navigation }) => {
     // Log userData when auth is done loading
     if (!authLoading && userData) {
       console.log('User data after auth loaded:', userData);
+      
+      // Check for cache structure issues first
+      Promise.all([
+        checkAndFixCacheStructure(),
+        checkCachePersistence()
+      ]).then(([fixedMetricsData]) => {
+        if (fixedMetricsData) {
+          console.log('Found and potentially fixed metrics cache structure issue');
+        }
+        
+        // Now ensure we load from cache when user signs back in
+        if (DEBUG_CACHE) {
+          console.log('Auth loaded - ensuring we load cached data');
+        }
+        
+        // Load both metrics and reservations from cache
+        Promise.all([
+          loadMetricsFromCache(),
+          loadReservationsFromCache()
+        ]).then(([hasCachedMetrics, hasCachedReservations]) => {
+          if (DEBUG_CACHE) {
+            console.log('Cache load attempt after auth completed:', {
+              hadCachedMetrics: hasCachedMetrics,
+              hadCachedReservations: hasCachedReservations
+            });
+          }
+        });
+      });
     }
   }, [authLoading]);
   
@@ -140,13 +186,222 @@ const HomeScreen = ({ navigation }) => {
     console.log('User data changed:', userData);
   }, [userData]);
   
+  // Add state for cached metrics
+  const [metricsFromCache, setMetricsFromCache] = useState(false);
+  const [reservationsFromCache, setReservationsFromCache] = useState(false);
+  const [upcomingReservationsFromCache, setUpcomingReservationsFromCache] = useState(false);
+  
+  // Load metrics from cache
+  const loadMetricsFromCache = async () => {
+    try {
+      if (DEBUG_CACHE) console.log('Attempting to load metrics from cache...');
+      
+      // First check if the cache key exists at all
+      const allKeys = await AsyncStorage.getAllKeys();
+      if (DEBUG_CACHE) console.log('All AsyncStorage keys:', allKeys);
+      
+      // Check specifically for our metrics key
+      const hasMetricsCache = allKeys.includes(METRICS_CACHE);
+      if (DEBUG_CACHE) console.log('Has metrics cache key:', hasMetricsCache);
+      
+      if (!hasMetricsCache) {
+        return false;
+      }
+      
+      // First try using the proper cacheUtils function to get the data
+      const cachedMetrics = await loadFromCache(METRICS_CACHE);
+      
+      if (cachedMetrics) {
+        if (DEBUG_CACHE) {
+          console.log('Loaded metrics from cache successfully using cacheUtils');
+          console.log('Cached metrics summary:', {
+            hasTotalRevenue: cachedMetrics.totalRevenue !== undefined,
+            totalRevenue: cachedMetrics.totalRevenue,
+            hasFutureRevenue: cachedMetrics.futureRevenue !== undefined,
+            futureRevenue: cachedMetrics.futureRevenue,
+            hasChartData: !!cachedMetrics.chartData,
+            chartDataKeys: cachedMetrics.chartData ? Object.keys(cachedMetrics.chartData) : []
+          });
+        }
+        
+        // Validate data quality - check if chart data has actual content
+        let hasValidData = true;
+        
+        // Check if all values are zero/empty
+        if (cachedMetrics.totalRevenue === 0 && cachedMetrics.futureRevenue === 0) {
+          // If we have chart data, verify it's not just empty arrays
+          if (cachedMetrics.chartData) {
+            const chartDataKeys = Object.keys(cachedMetrics.chartData);
+            if (chartDataKeys.length > 0) {
+              // Check the first chart data set (e.g., '6M')
+              const firstKey = chartDataKeys[0];
+              const chartSet = cachedMetrics.chartData[firstKey];
+              
+              // Consider data invalid if arrays are empty or all values are zero
+              if (!chartSet || 
+                  !chartSet.data || 
+                  chartSet.data.length === 0 || 
+                  chartSet.data.every(val => val === 0)) {
+                if (DEBUG_CACHE) console.log('Chart data exists but contains only empty arrays or zero values');
+                hasValidData = false;
+              }
+            } else {
+              hasValidData = false;
+            }
+          } else {
+            hasValidData = false;
+          }
+        }
+        
+        if (!hasValidData) {
+          if (DEBUG_CACHE) console.log('Cache data exists but appears to be empty or invalid');
+          return false;
+        }
+        
+        // Update state with cached values
+        if (cachedMetrics.totalRevenue !== undefined) {
+          setTotalRevenue(cachedMetrics.totalRevenue);
+        }
+        
+        if (cachedMetrics.futureRevenue !== undefined) {
+          setFutureRevenue(cachedMetrics.futureRevenue);
+        }
+        
+        if (cachedMetrics.chartData !== undefined) {
+          setChartData(cachedMetrics.chartData);
+        }
+        
+        setMetricsFromCache(true);
+        return true;
+      } 
+      
+      // If cacheUtils failed to load, try direct access as a fallback
+      if (DEBUG_CACHE) console.log('cacheUtils loading failed, trying direct access...');
+      
+      const rawCachedValue = await AsyncStorage.getItem(METRICS_CACHE);
+      if (!rawCachedValue) {
+        if (DEBUG_CACHE) console.log('No raw cache value found');
+        return false;
+      }
+      
+      try {
+        const parsedValue = JSON.parse(rawCachedValue);
+        if (DEBUG_CACHE) console.log('Parsed raw cache value successfully');
+        
+        // Extract data based on structure
+        let extractedData = parsedValue;
+        
+        // If data is wrapped in cacheUtils format, extract it
+        if (parsedValue?.data && parsedValue?.timestamp) {
+          extractedData = parsedValue.data;
+          if (DEBUG_CACHE) console.log('Extracted data from cacheUtils wrapper');
+        }
+        
+        if (DEBUG_CACHE) {
+          console.log('Direct cache access metrics summary:', {
+            hasTotalRevenue: extractedData.totalRevenue !== undefined,
+            totalRevenue: extractedData.totalRevenue,
+            hasFutureRevenue: extractedData.futureRevenue !== undefined,
+            futureRevenue: extractedData.futureRevenue,
+            hasChartData: !!extractedData.chartData,
+            chartDataKeys: extractedData.chartData ? Object.keys(extractedData.chartData) : []
+          });
+        }
+        
+        // Update state with extracted values
+        if (extractedData.totalRevenue !== undefined) {
+          setTotalRevenue(extractedData.totalRevenue);
+        }
+        
+        if (extractedData.futureRevenue !== undefined) {
+          setFutureRevenue(extractedData.futureRevenue);
+        }
+        
+        if (extractedData.chartData !== undefined) {
+          setChartData(extractedData.chartData);
+        }
+        
+        setMetricsFromCache(true);
+        return true;
+      } catch (parseError) {
+        console.error('Failed to parse raw cached value:', parseError);
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('Error loading metrics from cache:', error);
+      return false;
+    }
+  };
+  
+  // Save metrics to cache
+  const saveMetricsToCache = async () => {
+    try {
+      if (DEBUG_CACHE) console.log('Preparing to save metrics to cache...');
+      
+      // Don't save empty data to prevent caching useless information
+      const hasValidChartData = chartData && 
+        Object.keys(chartData).some(key => 
+          chartData[key]?.data?.length > 0 && 
+          !chartData[key]?.data.every(val => val === 0)
+        );
+        
+      // Only save if we have meaningful data
+      if (totalRevenue === 0 && futureRevenue === 0 && !hasValidChartData) {
+        if (DEBUG_CACHE) console.log('Skipping cache save - no meaningful data to cache');
+        return;
+      }
+      
+      const metricsToCache = {
+        totalRevenue,
+        futureRevenue,
+        chartData
+      };
+      
+      if (DEBUG_CACHE) {
+        console.log('Metrics to cache summary:', {
+          totalRevenue,
+          futureRevenue,
+          chartDataKeys: chartData ? Object.keys(chartData) : [],
+          hasValidChartData
+        });
+      }
+      
+      await saveToCache(METRICS_CACHE, metricsToCache);
+      
+      // Verify the cache was saved successfully
+      if (DEBUG_CACHE) {
+        const allKeys = await AsyncStorage.getAllKeys();
+        console.log('AsyncStorage keys after saving:', allKeys);
+        console.log('Metrics cache saved successfully');
+      }
+    } catch (error) {
+      console.error('Error saving metrics to cache:', error);
+    }
+  };
+  
+  // Clear metrics cache
+  const clearMetricsCache = async () => {
+    try {
+      await AsyncStorage.removeItem(METRICS_CACHE);
+      await AsyncStorage.removeItem(`${METRICS_CACHE}_meta`);
+      console.log('Cleared metrics cache');
+      setMetricsFromCache(false);
+    } catch (error) {
+      console.error('Error clearing metrics cache:', error);
+    }
+  };
+
   // Load financial data directly from API
-  const loadFinancialData = async () => {
+  const loadFinancialData = async (forceReload = false) => {
     if (!listings || !listings.length) {
       return;
     }
     
-    setLoading(true);
+    // Only show loading if we don't have cached data or if force reload
+    if (!metricsFromCache || forceReload) {
+      setLoading(true);
+    }
     
     try {
       // Get all listing IDs and ensure they are numbers
@@ -365,6 +620,9 @@ const HomeScreen = ({ navigation }) => {
       
       setChartData(formattedChartData);
       
+      // After successfully fetching data, save to cache
+      await saveMetricsToCache();
+      
     } catch (error) {
       console.error('Error loading financial data:', error);
     } finally {
@@ -375,7 +633,20 @@ const HomeScreen = ({ navigation }) => {
   // Load data when listings change
   useEffect(() => {
     if (listings && listings.length > 0) {
-      loadFinancialData();
+      // First check if cached metrics have valid chart data
+      const hasValidChartData = chartData && 
+        Object.keys(chartData).some(key => 
+          chartData[key]?.data?.length > 0 && 
+          !chartData[key]?.data.every(val => val === 0)
+        );
+      
+      // Force reload if chart data is invalid, otherwise use regular load
+      if (metricsFromCache && !hasValidChartData) {
+        console.log('Cached metrics exist but chart data is invalid, forcing reload');
+        loadFinancialData(true);
+      } else {
+        loadFinancialData();
+      }
     }
   }, [listings]);
 
@@ -390,17 +661,33 @@ const HomeScreen = ({ navigation }) => {
   // Initial data load
   useEffect(() => {
     loadDashboardData();
-    fetchUpcomingReservations();
     
     // Log userData object to see available fields
     console.log('User data:', userData);
   }, []);
   
   const loadDashboardData = async () => {
-    setLoading(true);
+    // Load metrics and reservations from cache
+    const [hasCachedMetrics, hasCachedReservations] = await Promise.all([
+      loadMetricsFromCache(),
+      loadReservationsFromCache()
+    ]);
+    
+    if (!hasCachedMetrics) {
+      setLoading(true);
+    }
+    
     try {
-      // Directly call loadFinancialData which already does all the data fetching
-      await loadFinancialData();
+      // Force reload if we have no listings
+      const shouldForceReload = !listings || listings.length === 0;
+      
+      // Load fresh data from API regardless of cache state if force reload needed
+      // or if we don't have valid cached metrics
+      await loadFinancialData(shouldForceReload || !hasCachedMetrics);
+      
+      // Always fetch fresh reservations, but the loading indicator won't show
+      // if we have cached data because of reservationsFromCache state
+      await fetchUpcomingReservations();
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
@@ -408,13 +695,50 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
+  // Force refresh all data and clear cache
+  const forceRefreshAllData = async () => {
+    if (DEBUG_CACHE) console.log('Force refreshing all data and clearing cache...');
+    
+    // Clear cache
+    await clearMetricsCache();
+    
+    // Reset cache flags
+    setMetricsFromCache(false);
+    setReservationsFromCache(false);
+    
+    // Set loading state
+    setLoading(true);
+    
+    try {
+      // Force reload financial data
+      await loadFinancialData(true);
+      
+      // Reload reservations
+      await fetchUpcomingReservations();
+      
+      if (DEBUG_CACHE) console.log('Force refresh completed successfully');
+    } catch (error) {
+      console.error('Error during force refresh:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
+    // Reset the cached state while refreshing
+    setReservationsFromCache(false);
+    
     // Refresh both financial data and upcoming reservations
     Promise.all([
-      loadDashboardData(),
+      loadFinancialData(true), // Force reload on pull-to-refresh
       fetchUpcomingReservations()
     ])
+    .then(() => {
+      // Save the refreshed data to cache
+      saveMetricsToCache();
+      saveReservationsToCache();
+    })
     .finally(() => setRefreshing(false));
   }, []);
   
@@ -422,8 +746,10 @@ const HomeScreen = ({ navigation }) => {
   const handleChartDataFetch = async (viewMode, yearInfo) => {
     
     try {
-      // Check if we already have data for this viewMode
-      if (chartData && chartData[viewMode]?.data?.length > 0) {
+      // Check if we already have valid data for this viewMode
+      if (chartData && 
+          chartData[viewMode]?.data?.length > 0 && 
+          !chartData[viewMode]?.data.every(val => val === 0)) {
         return Promise.resolve(chartData[viewMode]);
       }
       
@@ -603,8 +929,8 @@ const HomeScreen = ({ navigation }) => {
       }
     }
     
-    // Determine if the metrics are loading
-    const metricsLoading = loading || refreshing;
+    // Determine if the metrics are loading - avoid showing loading if we have cached data
+    const metricsLoading = (loading && !metricsFromCache) || refreshing;
     
     return (
       <Animated.View 
@@ -693,14 +1019,14 @@ const HomeScreen = ({ navigation }) => {
           futureRevenue: futureRevenue,
           sharingRevenue: sharingRevenue
         }}
-        loading={loading || refreshing}
+        loading={(loading && !metricsFromCache) || refreshing}
         style={styles.revenueSummary}
       />
     );
   };
 
   const renderChart = () => {
-    if (loading && !chartData['6M']?.data?.length) {
+    if (loading && !chartData['6M']?.data?.length && !metricsFromCache) {
       return (
         <View style={[styles.loadingContainer, { backgroundColor: appTheme.surface }]}>
           <ActivityIndicator size="large" color={appTheme.primary} />
@@ -711,14 +1037,28 @@ const HomeScreen = ({ navigation }) => {
     
     return <RevenueChart 
       data={chartData} 
-      loading={loading || refreshing} 
+      loading={(loading && !metricsFromCache) || refreshing} 
       onFetchData={handleChartDataFetch}
     />;
   };
 
   const handleSignOut = async () => {
     try {
+      if (DEBUG_CACHE) {
+        console.log('Signing out - checking cache state before sign out');
+        const allKeys = await AsyncStorage.getAllKeys();
+        console.log('AsyncStorage keys before sign out:', allKeys);
+        
+        // Check our metrics cache specifically
+        const hasMetricsCache = allKeys.includes(METRICS_CACHE);
+        console.log('Has metrics cache before sign out:', hasMetricsCache);
+      }
+      
       await signOut();
+      
+      if (DEBUG_CACHE) {
+        console.log('Sign out completed');
+      }
     } catch (error) {
       console.error('Error signing out:', error);
     }
@@ -739,6 +1079,173 @@ const HomeScreen = ({ navigation }) => {
     // Navigate to profile or account settings
     navigation.navigate('Profile');
   };
+
+  // Add function to check cache persistence
+  const checkCachePersistence = async () => {
+    if (!DEBUG_CACHE) return;
+    
+    try {
+      console.log('Checking cache persistence after sign-in...');
+      const allKeys = await AsyncStorage.getAllKeys();
+      console.log('All keys after sign-in:', allKeys);
+      
+      const hasMetricsCache = allKeys.includes(METRICS_CACHE);
+      console.log('Cache survived sign-in/out process:', hasMetricsCache);
+      
+      if (hasMetricsCache) {
+        // Try to read the cache directly
+        const rawCache = await AsyncStorage.getItem(METRICS_CACHE);
+        if (rawCache) {
+          console.log('Raw cache still exists after sign-in');
+          try {
+            const parsed = JSON.parse(rawCache);
+            console.log('Cache structure after sign-in:', {
+              hasData: !!parsed?.data,
+              hasTimestamp: !!parsed?.timestamp,
+            });
+          } catch (e) {
+            console.log('Could not parse cache after sign-in');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error checking cache persistence:', error);
+    }
+  };
+
+  // Check and fix cache structure issues
+  const checkAndFixCacheStructure = async () => {
+    if (!DEBUG_CACHE) return null;
+    
+    try {
+      console.log('Checking cache structure for potential issues...');
+      
+      // Get the raw value to inspect structure
+      const rawValue = await AsyncStorage.getItem(METRICS_CACHE);
+      if (!rawValue) {
+        console.log('No cache found to inspect');
+        return null;
+      }
+      
+      try {
+        const parsedValue = JSON.parse(rawValue);
+        console.log('Cache parsed successfully');
+        
+        // Check structure to see if cache was saved with the correct format
+        // If the data has a 'data' and 'timestamp' field, it might be double-wrapped
+        if (parsedValue?.data && parsedValue?.timestamp) {
+          console.log('Detected potential double-wrapped cache structure - may need fix');
+          
+          // Log the structure
+          console.log('Current structure:', {
+            hasData: true,
+            dataKeys: Object.keys(parsedValue.data),
+            timestamp: new Date(parsedValue.timestamp).toISOString()
+          });
+          
+          // If data contains the metrics we expect, it's properly structured with cacheUtils
+          return parsedValue.data;
+        } 
+        
+        // If we have direct access to the metrics (not wrapped by cacheUtils), we should fix
+        if (parsedValue.totalRevenue !== undefined || 
+            parsedValue.futureRevenue !== undefined || 
+            parsedValue.chartData !== undefined) {
+          console.log('Cache appears to be directly stored without cacheUtils wrapper');
+          return parsedValue;
+        }
+        
+        console.log('Cache structure unknown:', parsedValue);
+        return null;
+      } catch (error) {
+        console.error('Error parsing cache:', error);
+        return null;
+      }
+    } catch (error) {
+      console.error('Error checking cache structure:', error);
+      return null;
+    }
+  };
+
+  // Load reservations from cache
+  const loadReservationsFromCache = async () => {
+    try {
+      if (DEBUG_CACHE) console.log('Home: Loading reservations from cache...');
+      const cachedReservations = await loadFromCache(UPCOMING_RESERVATIONS_CACHE);
+      
+      // Validate cached data
+      if (cachedReservations && Array.isArray(cachedReservations) && cachedReservations.length > 0) {
+        // Filter out any invalid reservations
+        const validReservations = cachedReservations.filter(reservation => 
+          reservation && 
+          reservation.id && 
+          reservation.startDate && 
+          reservation.endDate && 
+          reservation.guests
+        );
+        
+        if (validReservations.length > 0) {
+          if (DEBUG_CACHE) console.log(`Home: Found ${validReservations.length} valid reservations in cache`);
+          setUpcomingReservations(validReservations);
+          setUpcomingReservationsFromCache(true);
+          return true;
+        } else {
+          if (DEBUG_CACHE) console.log('Home: Cached reservations were invalid, not using');
+        }
+      } else {
+        if (DEBUG_CACHE) console.log('Home: No valid reservations in cache');
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Home: Error loading reservations from cache:', error);
+      return false;
+    }
+  };
+  
+  // Save reservations to cache
+  const saveReservationsToCache = async () => {
+    try {
+      if (!upcomingReservations || !Array.isArray(upcomingReservations)) {
+        if (DEBUG_CACHE) console.log('Home: No reservations to cache');
+        return false;
+      }
+      
+      // Validate reservations before caching
+      const validReservations = upcomingReservations.filter(reservation => 
+        reservation && 
+        reservation.id && 
+        reservation.startDate && 
+        reservation.endDate && 
+        reservation.guests
+      );
+      
+      if (validReservations.length === 0) {
+        if (DEBUG_CACHE) console.log('Home: No valid reservations to cache');
+        return false;
+      }
+      
+      if (DEBUG_CACHE) console.log(`Home: Saving ${validReservations.length} reservations to cache`);
+      await saveToCache(UPCOMING_RESERVATIONS_CACHE, validReservations);
+      
+      return true;
+    } catch (error) {
+      console.error('Home: Error saving reservations to cache:', error);
+      return false;
+    }
+  };
+
+  // Update the useEffect for caching reservations with better validation
+  useEffect(() => {
+    // Only cache reservations if user is logged in and we have valid reservations
+    if (userData && 
+        upcomingReservations && 
+        Array.isArray(upcomingReservations) && 
+        upcomingReservations.length > 0 &&
+        !upcomingReservationsFromCache) {
+      saveReservationsToCache();
+    }
+  }, [userData, upcomingReservations, upcomingReservationsFromCache]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: GOLD.primary }]}>
@@ -806,7 +1313,7 @@ const HomeScreen = ({ navigation }) => {
             >
               <UpcomingReservations
                 reservations={upcomingReservations}
-                loading={upcomingReservationsLoading || authLoading}
+                loading={(upcomingReservationsLoading && !reservationsFromCache) || refreshing}
               />
             </Animated.View>
             

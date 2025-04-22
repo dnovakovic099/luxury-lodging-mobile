@@ -25,7 +25,9 @@ import { getReservationsWithFinancialData } from '../services/api';
 import Icon from 'react-native-vector-icons/Ionicons';
 import ReservationDetailModal from '../components/ReservationDetailModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { format } from 'date-fns';
+import { format, startOfDay, isSameDay } from 'date-fns';
+import { saveToCache, loadFromCache, CACHE_KEYS } from '../utils/cacheUtils';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -66,6 +68,11 @@ const SummaryCard = ({ title, value, isCount, color, theme, icon }) => {
   );
 };
 
+// Cache key for reservations
+const RESERVATIONS_CACHE = 'cache_reservations_data';
+// Debug flag for cache logging
+const DEBUG_CACHE = false;
+
 const ReservationsScreen = ({ navigation }) => {
   const { listings, refreshData, isLoading: authLoading } = useAuth();
   const { theme = defaultTheme } = useTheme();
@@ -87,11 +94,77 @@ const ReservationsScreen = ({ navigation }) => {
   const [showFilters, setShowFilters] = useState(false);
   const [sortBy, setSortBy] = useState('date'); // Default sort by check-in date
   const [showSortOptions, setShowSortOptions] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
+  // Add state for tracking when data is loaded from cache
+  const [reservationsFromCache, setReservationsFromCache] = useState(false);
+  
+  // Add states to store all reservations and track filter/sort operations
+  const [allReservations, setAllReservations] = useState([]);
+  
+  // Function to load reservations from cache
+  const loadReservationsFromCache = async () => {
+    try {
+      // Create a cache key that includes the selected filters
+      const cacheKey = `${RESERVATIONS_CACHE}_${selectedListing || 'all'}`;
+      
+      // Get the data in a single operation instead of checking keys first
+      const cachedReservations = await loadFromCache(cacheKey);
+      
+      if (!cachedReservations || !Array.isArray(cachedReservations) || cachedReservations.length === 0) {
+        return false;
+      }
+      
+      // Need to fix dates which are stored as strings in cache
+      const fixedReservations = cachedReservations.map(reservation => ({
+        ...reservation,
+        arrivalDate: reservation.arrivalDate ? new Date(reservation.arrivalDate) : null,
+        departureDate: reservation.departureDate ? new Date(reservation.departureDate) : null,
+        checkInDate: reservation.checkInDate ? new Date(reservation.checkInDate) : null,
+        checkOutDate: reservation.checkOutDate ? new Date(reservation.checkOutDate) : null,
+        bookingDate: reservation.bookingDate ? new Date(reservation.bookingDate) : null,
+        reservationDate: reservation.reservationDate ? new Date(reservation.reservationDate) : null
+      }));
+      
+      // Critical: First clear loading state to ensure UI updates immediately
+      setIsLoading(false);
+      
+      // Update both state variables with cached reservations
+      setFilteredReservations(fixedReservations);
+      setAllReservations(fixedReservations); // Also set allReservations
+      setReservationsFromCache(true);
+      
+      console.log(`Loaded ${fixedReservations.length} reservations from cache, allReservations is now set`);
+      
+      return true;
+    } catch (error) {
+      console.error('Error loading reservations from cache:', error);
+      return false;
+    }
+  };
+  
+  // Function to save reservations to cache
+  const saveReservationsToCache = async () => {
+    if (!allReservations || !Array.isArray(allReservations) || allReservations.length === 0) {
+      console.log('No reservations to cache');
+      return;
+    }
+    
+    try {
+      // Create a cache key for all reservations
+      const cacheKey = `${RESERVATIONS_CACHE}_all`;
+      
+      console.log(`Saving ${allReservations.length} reservations to cache`);
+      await saveToCache(cacheKey, allReservations);
+    } catch (error) {
+      console.error('Error saving reservations to cache:', error);
+    }
+  };
+  
   // Calculate header height and opacity based on scroll position
   const headerHeight = scrollY.interpolate({
     inputRange: [0, 100],
-    outputRange: [110, 60],
+    outputRange: [90, 50],
     extrapolate: 'clamp',
   });
   
@@ -138,53 +211,237 @@ const ReservationsScreen = ({ navigation }) => {
   
   // Set initial property when listings load
   useEffect(() => {
-    if (formattedListings.length > 0 && !selectedListing) {
-      setSelectedListing(formattedListings[0].id);
+    if (!selectedListing) {
+      setSelectedListing('all'); // Default to "All" properties instead of first listing
     }
   }, [formattedListings, selectedListing]);
   
   // Handle listing selection
   const handleListingSelect = (selected) => {
+    console.log(`Listing selected: ${selected}`);
+    
+    // Set the selected listing state
     setSelectedListing(selected);
-  };
-  
-  // Handle date selection
-  const handleStartDateSelect = (date) => {
-    setStartDate(date);
-  };
-  
-  const handleEndDateSelect = (date) => {
-    setEndDate(date);
-  };
-  
-  // Reset filters
-  const resetFilters = () => {
-    if (formattedListings.length > 0) {
-      setSelectedListing(formattedListings[0].id);
-    } else {
-      setSelectedListing(null);
+    
+    // If we don't have any reservations yet, we need to load them first
+    const hasReservations = (
+      (allReservations && allReservations.length > 0) || 
+      (filteredReservations && filteredReservations.length > 0)
+    );
+    
+    if (!hasReservations) {
+      console.log('No reservations cached yet, need to fetch from API first');
+      setReservationsFromCache(false);
+      setIsLoading(true);
+      loadReservations().then(() => {
+        // Once loaded, filter the results based on selected listing
+        filterReservationsByProperty(selected);
+      });
+      return;
     }
-    setStartDate(new Date());
-    setEndDate(null);
+
+    // We have reservations, just filter them
+    filterReservationsByProperty(selected);
   };
   
-  // Handle sort selection
-  const handleSortSelect = (method) => {
-    setSortBy(method);
-    setShowSortOptions(false);
+  // Helper function to filter reservations by property
+  const filterReservationsByProperty = (selected) => {
+    // Get the reservations to filter - use filteredReservations as fallback
+    const reservationsToFilter = (allReservations && allReservations.length > 0) 
+      ? allReservations 
+      : filteredReservations;
+    
+    // Safety check - if no reservations are available at all
+    if (!reservationsToFilter || reservationsToFilter.length === 0) {
+      console.log('No reservations to filter');
+      setFilteredReservations([]);
+      return;
+    }
+    
+    console.log(`Filtering ${reservationsToFilter.length} reservations for property: ${selected}`);
+    
+    // If "all" is selected, just apply current sort and date filter
+    if (selected === 'all') {
+      const filtered = applySortAndDateFilter([...reservationsToFilter]);
+      setFilteredReservations(filtered);
+      return;
+    }
+    
+    // Filter reservations for this property
+    const filtered = reservationsToFilter.filter(item => {
+      // Match against all possible property id fields
+      const potentialIds = [
+        item.listingMapId?.toString(),
+        item.propertyId?.toString(), 
+        item.listingId?.toString(),
+        item.siteId?.toString()
+      ].filter(Boolean);
+      
+      return potentialIds.some(id => id === selected);
+    });
+    
+    console.log(`Found ${filtered.length} reservations for property ${selected}`);
+    
+    // Apply current sort and date filter to the filtered results
+    const sortedAndFiltered = applySortAndDateFilter(filtered);
+    setFilteredReservations(sortedAndFiltered);
   };
   
-  // Load reservations with filters
-  const loadFilteredReservations = async () => {
+  // Function to apply date filtering
+  const applyDateFilter = (date) => {
+    console.log(`Applying date filter: ${date ? format(date, 'yyyy-MM-dd') : 'none'}`);
+    
+    // Get the reservations to filter - use filteredReservations as fallback
+    const reservationsToFilter = (allReservations && allReservations.length > 0) 
+      ? allReservations 
+      : filteredReservations;
+    
+    // Check if we have reservations to filter
+    if (!reservationsToFilter || reservationsToFilter.length === 0) {
+      console.log('No reservations to filter');
+      setShowDatePicker(false);
+      return;
+    }
+    
+    // Clone array to avoid mutation
+    let filtered = [...reservationsToFilter];
+    
+    // Apply property filter if needed
+    if (selectedListing !== 'all') {
+      console.log(`Filtering by property: ${selectedListing}`);
+      filtered = filtered.filter(item => {
+        const potentialIds = [
+          item.listingMapId?.toString(),
+          item.propertyId?.toString(), 
+          item.listingId?.toString(),
+          item.siteId?.toString()
+        ].filter(Boolean);
+        
+        return potentialIds.some(id => id === selectedListing);
+      });
+      console.log(`After property filter: ${filtered.length} reservations`);
+    }
+    
+    // Apply date filter if provided
+    if (date) {
+      console.log('Filtering by check-in date');
+      try {
+        // Normalize to midnight for date comparison
+        const filterDate = startOfDay(date);
+        
+        filtered = filtered.filter(item => {
+          // Get check-in date (could be called arrivalDate or checkInDate)
+          const checkInDateStr = item.arrivalDate || item.checkInDate;
+          if (!checkInDateStr) return true; // Skip if no date available
+          
+          const checkInDate = startOfDay(new Date(checkInDateStr));
+          return isSameDay(checkInDate, filterDate);
+        });
+        console.log(`After date filter: ${filtered.length} reservations`);
+      } catch (error) {
+        console.error('Error filtering by date:', error);
+      }
+    }
+    
+    // Sort filtered reservations
+    if (sortBy === 'revenue') {
+      filtered.sort((a, b) => {
+        const aRevenue = Number(a.ownerPayout || 0);
+        const bRevenue = Number(b.ownerPayout || 0);
+        return bRevenue - aRevenue; // Highest first
+      });
+    } else {
+      filtered.sort((a, b) => {
+        const dateA = new Date(a.arrivalDate || a.checkInDate);
+        const dateB = new Date(b.arrivalDate || b.checkInDate);
+        return dateA - dateB; // Earliest first
+      });
+    }
+    
+    // Update state with filtered reservations
+    setFilteredReservations(filtered);
+    
+    // Close the date picker
+    setShowDatePicker(false);
+  };
+  
+  // Function to apply both sort and date filters
+  const applySortAndDateFilter = (reservations) => {
+    // Safety check for empty arrays
+    if (!reservations || !Array.isArray(reservations) || reservations.length === 0) {
+      console.log('No reservations to sort or filter');
+      return [];
+    }
+    
+    console.log(`Applying filters to ${reservations.length} reservations`);
+    
+    let result = [...reservations];
+    
+    // Apply property filter first
+    if (selectedListing !== 'all') {
+      result = result.filter(item => {
+        const potentialIds = [
+          item.listingMapId?.toString(),
+          item.propertyId?.toString(), 
+          item.listingId?.toString(),
+          item.siteId?.toString()
+        ].filter(Boolean);
+        
+        return potentialIds.some(id => id === selectedListing);
+      });
+      console.log(`After property filter: ${result.length} reservations`);
+    }
+    
+    // Apply date filter
+    if (startDate) {
+      const filterDate = new Date(startDate.toDateString());
+      console.log('Filtering by check-in date >=', format(filterDate, 'yyyy-MM-dd'));
+      
+      result = result.filter(res => {
+        try {
+          const checkInDate = new Date(new Date(res.arrivalDate || res.checkInDate).toDateString());
+          return checkInDate >= filterDate;
+        } catch (e) {
+          console.log('Error filtering date for reservation:', res.id);
+          return false;
+        }
+      });
+      console.log(`After date filter: ${result.length} reservations`);
+    }
+    
+    // Apply sort
+    if (sortBy === 'revenue') {
+      result.sort((a, b) => {
+        const aRevenue = Number(a.ownerPayout || 0);
+        const bRevenue = Number(b.ownerPayout || 0);
+        return bRevenue - aRevenue; // Highest first
+      });
+    } else {
+      result.sort((a, b) => {
+        const dateA = new Date(a.arrivalDate || a.checkInDate);
+        const dateB = new Date(b.arrivalDate || b.checkInDate);
+        return dateA - dateB; // Earliest first
+      });
+    }
+    
+    return result;
+  };
+  
+  // Replace loadFilteredReservations with a simpler function that loads all reservations
+  const loadReservations = async () => {
     if (!listings || !listings.length) {
       setIsLoading(false);
       return;
     }
     
-    setIsLoading(true);
+    // Only show full page loading if we don't have cached data
+    const shouldShowLoading = !reservationsFromCache;
+    if (shouldShowLoading) {
+      setIsLoading(true);
+    }
     
     try {
-      // Format dates for API
+      // Format dates for API - using a very old date to get all reservations
       const formatDateForApi = (date) => {
         if (!date) return null;
         
@@ -194,28 +451,25 @@ const ReservationsScreen = ({ navigation }) => {
         return correctedDate.toISOString().split('T')[0];
       };
       
-      // Prepare array of relevant listing IDs
-      let relevantListingIds = [];
+      // Always fetch ALL listing IDs when loading, 
+      // even if a specific property is selected (so we have complete data)
+      const relevantListingIds = listings.map(listing => listing.id.toString());
       
-      // Filter by selected listing
-      if (selectedListing !== 'all' && listings) {
-        relevantListingIds = [selectedListing];
-      } else {
-        // If "All Properties" is selected, include all listing IDs
-        relevantListingIds = listings.map(listing => listing.id.toString());
-      }
+      // Common parameters for all API calls - use a date far in the past to get all reservations
+      const pastDate = new Date();
+      pastDate.setFullYear(pastDate.getFullYear() - 1); // One year ago
       
-      // Common parameters for all API calls
       const baseParams = {
-        fromDate: formatDateForApi(startDate),
-        toDate: formatDateForApi(endDate),
+        fromDate: formatDateForApi(pastDate),
+        toDate: null, // No end date to get all future reservations
         dateType: 'arrivalDate',
         statuses: VALID_STATUSES
       };
       
-      let allReservations = [];
+      let allFetchedReservations = [];
       
-      // Fetch reservations for each listing separately
+      // Always fetch reservations for each listing separately
+      // This is more reliable than trying to fetch all at once
       for (const listingId of relevantListingIds) {
         const params = {
           ...baseParams,
@@ -225,18 +479,27 @@ const ReservationsScreen = ({ navigation }) => {
         const result = await getReservationsWithFinancialData(params);
         
         if (result?.reservations && Array.isArray(result.reservations)) {
-          allReservations = [...allReservations, ...result.reservations];
+          allFetchedReservations = [...allFetchedReservations, ...result.reservations];
         }
       }
       
-      // Further filter by valid statuses if needed
-      const transformedReservations = allReservations.filter(res => 
+      // Transform the reservations (same as before)
+      const transformedReservations = allFetchedReservations.filter(res => 
         VALID_STATUSES.includes(res.status)
       ).map(res => {
-        // Find the property details
-        const property = formattedListings.find(
-          p => p.id === res.listingMapId?.toString() || p.id === res.propertyId?.toString()
-        );
+        // Track potential property IDs for matching
+        const potentialIds = [
+          res.listingMapId?.toString(),
+          res.propertyId?.toString(),
+          res.listingId?.toString(),
+          res.siteId?.toString()
+        ].filter(Boolean); // Remove null/undefined
+        
+        // Find the property details with improved matching
+        const property = formattedListings.find(p => {
+          const pId = p.id?.toString();
+          return potentialIds.some(id => id === pId);
+        });
         
         // Get dates from reservation
         const arrivalDate = new Date(res.arrivalDate || res.checkInDate);
@@ -357,55 +620,66 @@ const ReservationsScreen = ({ navigation }) => {
         };
       });
       
-      // Sort reservations based on selected sort option
-      const sortedReservations = sortReservations(transformedReservations);
+      // Store ALL reservations in memory
+      console.log(`Setting allReservations with ${transformedReservations.length} items`);
       
-      setFilteredReservations(sortedReservations);
+      // Explicitly clone the array and all objects to avoid reference issues
+      const reservationsToStore = JSON.parse(JSON.stringify(transformedReservations));
+      setAllReservations(reservationsToStore);
+      
+      // Always show all reservations with current sort and date filter
+      // We'll filter by property afterwards if needed
+      const filtered = applySortAndDateFilter(reservationsToStore);
+      setFilteredReservations(filtered);
+      
     } catch (error) {
       console.error('Error loading reservations:', error);
-      setFilteredReservations([]);
+      
+      // If we have no cached data or fetching failed, set empty reservations
+      if (!reservationsFromCache) {
+        setAllReservations([]);
+        setFilteredReservations([]);
+      }
     } finally {
+      // Always clear loading states when done
       setIsLoading(false);
       setLoading(false);
     }
   };
   
-  // Sort reservations based on current sort option
-  const sortReservations = (reservations) => {
-    if (!reservations || !reservations.length) return [];
-    
-    let sorted = [...reservations];
-    
-    if (sortBy === 'revenue') {
-      // Sort by revenue (highest first)
-      sorted = sorted.sort((a, b) => {
-        const aRevenue = parseFloat(a.ownerPayout || 0);
-        const bRevenue = parseFloat(b.ownerPayout || 0);
-        return bRevenue - aRevenue;
-      });
-    } else {
-      // Default: sort by check-in date (earliest first)
-      sorted = sorted.sort((a, b) => {
-        const dateA = new Date(a.arrivalDate || a.checkInDate);
-        const dateB = new Date(b.arrivalDate || b.checkInDate);
-        return dateA - dateB;
+  // Update the useEffect to avoid fetching on listing selection changes
+  useEffect(() => {
+    // Only load initial data if we have no reservations yet
+    if (allReservations.length === 0 && listings && listings.length > 0) {
+      console.log('Initial load - fetching all reservations');
+      
+      // First try to load from cache with specific key for "all"
+      loadReservationsFromCache().then(hasCachedData => {
+        if (!hasCachedData) {
+          // No cached data, fetch fresh
+          console.log('No cache data found, loading from API');
+          setIsLoading(true);
+          loadReservations();
+        } else {
+          console.log('Successfully loaded data from cache');
+          // Make sure to apply any property filter if needed
+          if (selectedListing !== 'all') {
+            filterReservationsByProperty(selectedListing);
+          }
+        }
       });
     }
-    
-    return sorted;
-  };
+  }, [listings]); // Only depend on listings, not selectedListing
   
-  // Apply filters when they change
+  // New effect to filter whenever allReservations or selectedListing changes
   useEffect(() => {
-    // Add a small timeout to prevent rapid concurrent requests
-    const timeoutId = setTimeout(() => {
-      loadFilteredReservations();
-    }, 100);
-    
-    // Cleanup the timeout if the effect runs again before it fires
-    return () => clearTimeout(timeoutId);
-  }, [selectedListing, startDate, endDate, listings]);
-
+    // Only run if we have reservations and a selectedListing
+    if (allReservations.length > 0 && selectedListing) {
+      console.log('Applying filter after reservations or selected property changed');
+      filterReservationsByProperty(selectedListing);
+    }
+  }, [allReservations, selectedListing]);
+  
   const totalBookings = filteredReservations.length;
   
   // Calculate financial totals from the filtered reservations
@@ -456,9 +730,41 @@ const ReservationsScreen = ({ navigation }) => {
   };
 
   const onRefresh = async () => {
-    setRefreshing(true);
-    await loadFilteredReservations();
-    setRefreshing(false);
+    try {
+      setRefreshing(true);
+      
+      // First try to load from cache to show data immediately
+      const loadedFromCache = await loadReservationsFromCache();
+      
+      // If we have cached data, it's already displayed
+      if (loadedFromCache) {
+        // Make sure we're not showing the loading indicator for cached data
+        setIsLoading(false);
+        
+        // Schedule a background fetch after a short delay to let UI update with cache
+        setTimeout(() => {
+          loadReservations().finally(() => {
+            // Once data is loaded, apply property filter if needed
+            if (selectedListing !== 'all') {
+              filterReservationsByProperty(selectedListing);
+            }
+            setRefreshing(false);
+          });
+        }, 100);
+      } else {
+        // No cached data, load normally but still avoid full screen blocker
+        // by keeping refreshing true (which prevents the loading screen)
+        await loadReservations();
+        // Apply property filter if needed
+        if (selectedListing !== 'all') {
+          filterReservationsByProperty(selectedListing);
+        }
+        setRefreshing(false);
+      }
+    } catch (error) {
+      console.error('Error refreshing:', error);
+      setRefreshing(false);
+    }
   };
 
   const handleRowPress = (reservation) => {
@@ -603,7 +909,141 @@ const ReservationsScreen = ({ navigation }) => {
     setModalVisible(true);
   };
 
-  if ((isLoading || authLoading) && !refreshing) {
+  // Function to handle start date selection
+  const handleStartDateSelect = (date) => {
+    console.log(`Start date selected: ${date ? format(date, 'yyyy-MM-dd') : 'none'}`);
+    setStartDate(date);
+    // Apply filter for this specific date
+    applyDateFilter(date);
+  };
+
+  // Function to handle end date selection
+  const handleEndDateSelect = (date) => {
+    console.log(`End date selected: ${date ? format(date, 'yyyy-MM-dd') : 'none'}`);
+    setEndDate(date);
+    // Currently we're filtering by just the start date
+    // To support date ranges, we'd modify applyDateFilter to use both dates
+  };
+
+  // Function to reset all filters
+  const resetFilters = () => {
+    console.log('Resetting all filters');
+    setStartDate(null);
+    setEndDate(null);
+    
+    // Show all reservations for the current listing
+    if (allReservations && allReservations.length > 0) {
+      console.log('Resetting to cached reservations');
+      
+      // Apply property filter if needed
+      if (selectedListing !== 'all') {
+        const filtered = allReservations.filter(item => {
+          const potentialIds = [
+            item.listingMapId?.toString(),
+            item.propertyId?.toString(), 
+            item.listingId?.toString(),
+            item.siteId?.toString()
+          ].filter(Boolean);
+          
+          return potentialIds.some(id => id === selectedListing);
+        });
+        
+        // Sort the filtered reservations
+        if (sortBy === 'revenue') {
+          filtered.sort((a, b) => Number(b.ownerPayout || 0) - Number(a.ownerPayout || 0));
+        } else {
+          filtered.sort((a, b) => new Date(a.arrivalDate || a.checkInDate) - new Date(b.arrivalDate || b.checkInDate));
+        }
+        
+        setFilteredReservations(filtered);
+      } else {
+        // Just apply sorting to all reservations
+        const sorted = [...allReservations];
+        if (sortBy === 'revenue') {
+          sorted.sort((a, b) => Number(b.ownerPayout || 0) - Number(a.ownerPayout || 0));
+        } else {
+          sorted.sort((a, b) => new Date(a.arrivalDate || a.checkInDate) - new Date(b.arrivalDate || b.checkInDate));
+        }
+        
+        setFilteredReservations(sorted);
+      }
+    } else {
+      // If no cached data, try to load from API
+      loadReservations();
+    }
+    
+    // Close date picker
+    setShowDatePicker(false);
+  };
+
+  // Handle sort selection
+  const handleSortSelect = (method) => {
+    console.log(`Sorting by ${method}`);
+    setSortBy(method);
+    
+    if (allReservations.length === 0) {
+      console.log('No reservations to sort');
+      return;
+    }
+    
+    // First apply property and date filters
+    let filtered = [...allReservations];
+    
+    // Apply property filter if applicable
+    if (selectedListing !== 'all') {
+      filtered = filtered.filter(item => {
+        const potentialIds = [
+          item.listingMapId?.toString(),
+          item.propertyId?.toString(), 
+          item.listingId?.toString(),
+          item.siteId?.toString()
+        ].filter(Boolean);
+        
+        return potentialIds.some(id => id === selectedListing);
+      });
+    }
+    
+    // Apply date filter if applicable
+    if (startDate) {
+      const filterDate = new Date(startDate.toDateString());
+      filtered = filtered.filter(res => {
+        try {
+          const checkInDate = new Date(new Date(res.arrivalDate || res.checkInDate).toDateString());
+          return checkInDate >= filterDate;
+        } catch (e) {
+          console.log('Error filtering date for reservation:', res.id);
+          return false;
+        }
+      });
+    }
+    
+    // Now apply the sort
+    if (method === 'revenue') {
+      filtered.sort((a, b) => {
+        const aRevenue = Number(a.ownerPayout || 0);
+        const bRevenue = Number(b.ownerPayout || 0);
+        return bRevenue - aRevenue; // Highest first
+      });
+    } else {
+      filtered.sort((a, b) => {
+        const dateA = new Date(a.arrivalDate || a.checkInDate);
+        const dateB = new Date(b.arrivalDate || b.checkInDate);
+        return dateA - dateB; // Earliest first
+      });
+    }
+    
+    setFilteredReservations(filtered);
+  };
+
+  // Effect to save reservations to cache whenever they change
+  useEffect(() => {
+    if (allReservations && allReservations.length > 0) {
+      console.log(`Reservations changed, saving ${allReservations.length} to cache`);
+      saveReservationsToCache();
+    }
+  }, [allReservations]); // Only depend on allReservations changes
+
+  if ((isLoading || authLoading) && !refreshing && !reservationsFromCache) {
     return (
       <View style={[styles.loadingContainer, {backgroundColor: theme?.background || '#FFFFFF'}]}>
         <ActivityIndicator size="large" color={GOLD.primary} />
@@ -617,75 +1057,227 @@ const ReservationsScreen = ({ navigation }) => {
     if (!formattedListings || formattedListings.length === 0) return null;
     
     return (
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.propertyFilterContainer}
-      >
-        {/* All Properties option */}
-        <TouchableOpacity
-          style={[
-            styles.propertyFilterItem,
-            selectedListing === 'all' && styles.selectedPropertyItem
-          ]}
-          onPress={() => handleListingSelect('all')}
+      <View style={styles.filterRow}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.propertyFilterContainer}
         >
-          <View style={[styles.propertyImageContainer, { backgroundColor: GOLD.light }]}>
-            <Icon name="home" size={20} color={GOLD.primary} />
-          </View>
-          <Text style={[
-            styles.propertyFilterText,
-            selectedListing === 'all' && { color: GOLD.primary, fontWeight: '600' }
-          ]}>
-            All
-          </Text>
-        </TouchableOpacity>
-        
-        {/* Individual property options */}
-        {formattedListings.map((listing, index) => {
-          const isSelected = selectedListing === listing.id;
+          {/* All Properties option */}
+          <TouchableOpacity
+            style={[
+              styles.propertyFilterItem,
+              selectedListing === 'all' && styles.selectedPropertyItem,
+              { marginLeft: 4 } // Add a bit of margin at the start
+            ]}
+            onPress={() => handleListingSelect('all')}
+          >
+            <View style={[
+              styles.propertyImageContainer, 
+              { backgroundColor: selectedListing === 'all' ? GOLD.primary : GOLD.light },
+              selectedListing === 'all' && { borderColor: GOLD.primary, borderWidth: 2 }
+            ]}>
+              <Icon 
+                name="home" 
+                size={18} 
+                color={selectedListing === 'all' ? '#FFFFFF' : GOLD.primary} 
+              />
+            </View>
+            <Text style={[
+              styles.propertyFilterText,
+              selectedListing === 'all' && { color: GOLD.primary, fontWeight: '600' }
+            ]}>
+              All Properties
+            </Text>
+          </TouchableOpacity>
           
-          return (
-            <TouchableOpacity
-              key={`property-${index}`}
-              style={[
-                styles.propertyFilterItem,
-                isSelected && styles.selectedPropertyItem
-              ]}
-              onPress={() => handleListingSelect(listing.id)}
+          {/* Individual property options */}
+          {formattedListings.map((listing, index) => {
+            const isSelected = selectedListing === listing.id;
+            
+            return (
+              <TouchableOpacity
+                key={`property-${index}`}
+                style={[
+                  styles.propertyFilterItem,
+                  isSelected && styles.selectedPropertyItem
+                ]}
+                onPress={() => handleListingSelect(listing.id)}
+              >
+                <View style={[
+                  styles.propertyImageContainer, 
+                  isSelected && { borderColor: GOLD.primary, borderWidth: 2 }
+                ]}>
+                  {listing.image ? (
+                    <Image 
+                      source={{ uri: listing.image }} 
+                      style={styles.propertyImage} 
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={[styles.propertyImagePlaceholder, { backgroundColor: GOLD.light }]}>
+                      <Text style={{ color: GOLD.primary }}>{listing.name.charAt(0)}</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={[
+                  styles.propertyFilterText,
+                  isSelected && { color: GOLD.primary, fontWeight: '600' }
+                ]} numberOfLines={2} ellipsizeMode="tail">
+                  {listing.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+        
+        {/* Add refresh button */}
+        <TouchableOpacity 
+          style={styles.refreshButton}
+          onPress={onRefresh}
+        >
+          <Icon name="refresh" size={22} color={GOLD.primary} />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  // Render date picker with proper display of selected date
+  const renderDatePicker = () => {
+    if (!showDatePicker) return null;
+    
+    return (
+      <View style={styles.datePickerContainer}>
+        <View style={styles.datePickerHeader}>
+          <Text style={styles.datePickerTitle}>Filter by Check-in Date</Text>
+          <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+            <Icon name="close" size={22} color="#666" />
+          </TouchableOpacity>
+        </View>
+        
+        {/* Debug view to verify date state */}
+        <View style={{padding: 8, backgroundColor: '#f5f5f5', marginBottom: 10, borderRadius: 4}}>
+          <Text style={{fontSize: 12, color: '#666'}}>
+            Current filter state: {startDate ? format(startDate, 'yyyy-MM-dd') : 'None'} 
+          </Text>
+        </View>
+        
+        <View style={styles.dateInputRow}>
+          <View style={styles.dateInputContainer}>
+            <Text style={styles.dateLabel}>Check-in Date</Text>
+            <DateRangePicker 
+              selectedDate={startDate}
+              onDateChange={handleStartDateSelect}
+              style={styles.datePicker}
+            />
+          </View>
+        </View>
+        
+        {startDate && (
+          <View style={styles.selectedDateContainer}>
+            <Text style={styles.selectedDateLabel}>Current filter:</Text>
+            <Text style={styles.selectedDateValue}>
+              {startDate ? format(startDate, 'MMM d, yyyy') : 'All dates'}
+            </Text>
+            <TouchableOpacity 
+              style={styles.clearDateButton} 
+              onPress={() => handleStartDateSelect(null)}
             >
-              <View style={[
-                styles.propertyImageContainer, 
-                isSelected && { borderColor: GOLD.primary }
-              ]}>
-                {listing.image ? (
-                  <Image 
-                    source={{ uri: listing.image }} 
-                    style={styles.propertyImage} 
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={[styles.propertyImagePlaceholder, { backgroundColor: GOLD.light }]}>
-                    <Text style={{ color: GOLD.primary }}>{listing.name.charAt(0)}</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={[
-                styles.propertyFilterText,
-                isSelected && { color: GOLD.primary, fontWeight: '600' }
-              ]} numberOfLines={1}>
-                {listing.name.length > 10 ? `${listing.name.substring(0, 10)}...` : listing.name}
-              </Text>
+              <Icon name="close-circle" size={16} color="#666" />
             </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+          </View>
+        )}
+        
+        <Text style={styles.datePickerHelper}>Only reservations with check-in dates on or after this date will be shown</Text>
+        <View style={styles.datePickerActions}>
+          <TouchableOpacity 
+            style={styles.resetButton} 
+            onPress={() => {
+              handleStartDateSelect(null);
+              setEndDate(null);
+              setShowDatePicker(false);
+            }}
+          >
+            <Text style={styles.resetButtonText}>Clear Filter</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.applyButton, { backgroundColor: GOLD.primary }]} 
+            onPress={() => {
+              console.log("Apply button pressed with date:", startDate ? format(startDate, 'yyyy-MM-dd') : 'none');
+              
+              // Re-apply filter if date is set
+              if (startDate) {
+                applyDateFilter(startDate);
+              }
+              
+              setShowDatePicker(false);
+            }}
+          >
+            <Text style={styles.applyButtonText}>Apply Filter</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  // Render filter options
+  const renderFilterOptions = () => {
+    if (!showFilters) return null;
+    
+    return (
+      <View style={styles.filtersContainer}>
+        <View style={styles.filterHeader}>
+          <Text style={styles.filterTitle}>Filter Reservations</Text>
+          <TouchableOpacity onPress={() => setShowFilters(false)}>
+            <Icon name="close" size={22} color="#666" />
+          </TouchableOpacity>
+        </View>
+        
+        <Text style={styles.filterLabel}>Sort By</Text>
+        <View style={styles.sortOptionsRow}>
+          <TouchableOpacity 
+            style={[
+              styles.sortOption, 
+              sortBy === 'date' && styles.selectedSortOption
+            ]}
+            onPress={() => handleSortSelect('date')}
+          >
+            <Text style={styles.sortOptionText}>Check-in Date</Text>
+            {sortBy === 'date' && <Icon name="checkmark" size={18} color={GOLD.primary} />}
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.sortOption, 
+              sortBy === 'revenue' && styles.selectedSortOption
+            ]}
+            onPress={() => handleSortSelect('revenue')}
+          >
+            <Text style={styles.sortOptionText}>Revenue</Text>
+            {sortBy === 'revenue' && <Icon name="checkmark" size={18} color={GOLD.primary} />}
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.filterActions}>
+          <TouchableOpacity 
+            style={styles.resetButton} 
+            onPress={resetFilters}
+          >
+            <Text style={styles.resetButtonText}>Reset All</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.applyButton, { backgroundColor: GOLD.primary }]} 
+            onPress={() => setShowFilters(false)}
+          >
+            <Text style={styles.applyButtonText}>Apply</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     );
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme?.background || '#FFFFFF' }]}>
-      <StatusBar barStyle={theme?.isDarkMode ? 'light-content' : 'dark-content'} translucent={true} backgroundColor="transparent" />
+      <StatusBar barStyle={theme?.isDarkMode ? 'light-content' : 'dark-content'} backgroundColor="transparent" />
       
       {/* Animated Header */}
       <Animated.View style={[
@@ -695,7 +1287,7 @@ const ReservationsScreen = ({ navigation }) => {
           opacity: headerOpacity,
           backgroundColor: theme?.background || '#FFFFFF',
           borderBottomWidth: 0,
-          paddingTop: insets.top
+          paddingTop: 0 // Remove extra padding at top
         }
       ]}>
         <Animated.View style={[
@@ -711,10 +1303,16 @@ const ReservationsScreen = ({ navigation }) => {
         </Animated.View>
         
         <View style={styles.headerButtons}>
-          {/* Sort Button */}
+          {/* Sort Toggle Button */}
           <TouchableOpacity
             style={[styles.headerButton, { backgroundColor: GOLD.light, marginRight: 8 }]}
-            onPress={() => handleSortSelect(sortBy === 'date' ? 'revenue' : 'date')}
+            onPress={() => {
+              // Force toggle - if date, switch to revenue, otherwise switch to date
+              const newSortBy = sortBy === 'date' ? 'revenue' : 'date';
+              console.log('SORT BUTTON PRESSED - toggling from', sortBy, 'to', newSortBy);
+              handleSortSelect(newSortBy);
+            }}
+            disabled={loading} // Disable while sorting is in progress
           >
             <Icon name="swap-vertical" size={16} color={GOLD.primary} />
             <Text style={[styles.headerButtonText, { color: GOLD.primary }]}>
@@ -723,119 +1321,74 @@ const ReservationsScreen = ({ navigation }) => {
           </TouchableOpacity>
           
           {/* Filter Button */}
-          <TouchableOpacity
-            style={[styles.headerButton, { backgroundColor: GOLD.light }]}
-            onPress={() => setShowFilters(!showFilters)}
+          {/* <TouchableOpacity
+            style={[
+              styles.headerButton, 
+              { backgroundColor: GOLD.light },
+              startDate && styles.activeFilterButton
+            ]}
+            onPress={() => setShowDatePicker(!showDatePicker)}
           >
-            <Icon name="filter" size={16} color={GOLD.primary} />
+            <Icon name="calendar-outline" size={16} color={GOLD.primary} />
             <Text style={[styles.headerButtonText, { color: GOLD.primary }]}>
-              Filter
+              {startDate ? 'Filtered' : 'Filter'}
             </Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </View>
       </Animated.View>
       
       <View style={styles.contentContainer}>
-        {/* Property filters */}
-        <View style={styles.quickFiltersContainer}>
-          {renderPropertyFilters()}
-        </View>
-        
-        {/* Main content */}
-        <ScrollView
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={GOLD.primary}
-              colors={[GOLD.primary]}
-            />
-          }
-          contentContainerStyle={styles.scrollViewContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {showFilters && (
-            <View style={[styles.filtersContainer, { backgroundColor: theme?.surface || '#F5F5F5' }]}>
-              <View style={styles.filterRow}>
-                <Text style={[styles.filterLabel, { color: theme?.text?.secondary || '#666666' }]}>Date Range</Text>
-                <DateRangePicker
-                  startDate={startDate}
-                  endDate={endDate}
-                  onStartDateChange={handleStartDateSelect}
-                  onEndDateChange={handleEndDateSelect}
-                  theme={theme || defaultTheme}
-                />
-              </View>
-              
-              <View style={styles.filterActions}>
-                <TouchableOpacity
-                  style={[styles.resetButton, { borderColor: theme?.borderColor || '#E0E0E0' }]}
-                  onPress={resetFilters}
-                >
-                  <Text style={[styles.resetButtonText, { color: theme?.text?.secondary || '#666666' }]}>Reset</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.applyButton, { backgroundColor: GOLD.primary }]}
-                  onPress={loadFilteredReservations}
-                >
-                  <Text style={styles.applyButtonText}>Apply Filters</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
+        {/* Summary stats - commented out to maximize space */}
+        {/* 
+        <View style={styles.summaryContainer}>
+          {financialTotals && (
+            <>
+              <SummaryCard title="Total Revenue" value={financialTotals.totalRevenue} theme={theme} icon="cash-outline" />
+              <SummaryCard title="Reservations" value={filteredReservations.length} isCount={true} theme={theme} icon="calendar-outline" />
+              <SummaryCard title="Avg. Per Stay" value={financialTotals.averageRevenue} theme={theme} icon="trending-up-outline" />
+            </>
           )}
-          
-          {/* Financial summary */}
-          <View style={styles.summaryContainer}>
-            <SummaryCard 
-              title="Total Revenue" 
-              value={totals.totalRevenue} 
-              theme={theme || defaultTheme} 
-              icon="cash-outline"
-            />
-            <SummaryCard 
-              title="Upcoming Revenue" 
-              value={totals.upcomingRevenue} 
-              theme={theme || defaultTheme} 
-              icon="trending-up"
-            />
-            <SummaryCard 
-              title="Total Bookings" 
-              value={filteredReservations.length} 
-              isCount={true} 
-              theme={theme || defaultTheme}
-              icon="calendar-outline"
-            />
-          </View>
+        </View>
+        */}
         
-          {isLoading ? (
-            <View style={[styles.loadingContentContainer, { backgroundColor: theme?.surface || '#F5F5F5' }]}>
+        {/* Filter controls */}
+        {renderPropertyFilters()}
+        
+        {/* Date Picker */}
+        {renderDatePicker()}
+        
+        {/* Filter Options */}
+        {renderFilterOptions()}
+        
+        {/* Reservations Table - Force remount with key */}
+        <View style={styles.tableContainer}>
+          {(isLoading && !reservationsFromCache) ? (
+            <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color={GOLD.primary} />
-              <Text style={[styles.loadingText, { color: theme?.text?.secondary || '#666666' }]}>
-                Loading reservations...
-              </Text>
+              <Text style={styles.loadingText}>Loading reservations...</Text>
             </View>
           ) : filteredReservations.length === 0 ? (
-            <View style={[styles.emptyState, { backgroundColor: theme?.surface || '#F5F5F5' }]}>
-              <Icon name="calendar-outline" size={48} color={theme?.text?.secondary || '#666666'} />
-              <Text style={[styles.emptyText, { color: theme?.text?.secondary || '#666666' }]}>
-                No reservations found for the selected filters.
-              </Text>
-              <TouchableOpacity
-                style={[styles.resetButton, { borderColor: GOLD.primary, marginTop: 20 }]}
-                onPress={resetFilters}
-              >
-                <Text style={[styles.resetButtonText, { color: GOLD.primary }]}>Reset Filters</Text>
-              </TouchableOpacity>
+            <View style={styles.emptyStateContainer}>
+              <Icon name="calendar-outline" size={48} color={GOLD.primary} />
+              <Text style={styles.emptyStateText}>No reservations match your filters</Text>
             </View>
           ) : (
-            <ReservationsTable
-              reservations={filteredReservations}
-              onRowPress={handleRowPress}
-              theme={theme || defaultTheme}
-              sortBy={sortBy}
-            />
+            <>
+              <ReservationsTable 
+                key={`reservations-table-${sortBy}-${startDate ? format(startDate, 'yyyyMMdd') : 'all'}`}
+                reservations={filteredReservations} 
+                sortBy={sortBy}
+                onRefresh={onRefresh}
+                refreshing={refreshing}
+                displayCurrency="USD"
+                navigation={navigation}
+                onRowPress={handleRowPress}
+              />
+              {console.log(`Rendering table with ${filteredReservations.length} reservations, sorted by ${sortBy}, date filter: ${startDate ? format(startDate, 'yyyy-MM-dd') : 'none'}`)}
+              {console.log(`First reservation: ${filteredReservations[0]?.propertyName || 'N/A'}, ownerPayout: ${filteredReservations[0]?.ownerPayout || 'N/A'}, arrival: ${filteredReservations[0]?.arrivalDate ? format(new Date(filteredReservations[0].arrivalDate), 'yyyy-MM-dd') : 'N/A'}`)}
+            </>
           )}
-        </ScrollView>
+        </View>
       </View>
       
       {/* Reservation Detail Modal */}
@@ -869,7 +1422,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   title: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '700',
   },
   headerButtons: {
@@ -890,7 +1443,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flex: 1,
-    marginTop: 110, // Match height of collapsed header
+    marginTop: 90,
   },
   quickFiltersContainer: {
     borderBottomWidth: 1,
@@ -898,26 +1451,29 @@ const styles = StyleSheet.create({
   },
   propertyFilterContainer: {
     paddingHorizontal: 16,
-    paddingVertical: 4,
-    paddingBottom: 10,
+    paddingVertical: 6,
+    paddingBottom: 8,
   },
   propertyFilterItem: {
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: 12,
     opacity: 0.8,
+    minWidth: 65,
+    maxWidth: 80,
+    height: 66,
   },
   selectedPropertyItem: {
     opacity: 1,
   },
   propertyImageContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f5f5f5',
-    marginBottom: 6,
+    marginBottom: 4,
     borderWidth: 2,
     borderColor: 'transparent',
   },
@@ -934,10 +1490,12 @@ const styles = StyleSheet.create({
     borderRadius: 25,
   },
   propertyFilterText: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#666666',
-    maxWidth: 60,
     textAlign: 'center',
+    height: 28,
+    flexWrap: 'wrap',
+    width: '100%',
   },
   scrollViewContent: {
     paddingHorizontal: 16,
@@ -954,8 +1512,10 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   filterRow: {
-    marginBottom: 12,
-    paddingHorizontal: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    minHeight: 90,
   },
   filterLabel: {
     fontSize: 14,
@@ -1084,6 +1644,157 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: 8,
     flex: 1,
+  },
+  tableContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  emptyStateContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyStateText: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  refreshButton: {
+    padding: 8,
+    marginRight: 8,
+  },
+  miniLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    margin: 8,
+    alignSelf: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 2,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+  },
+  miniLoadingText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#777',
+  },
+  datePickerContainer: {
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    margin: 8,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  datePickerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  dateInputRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  dateInputContainer: {
+    flex: 1,
+    marginRight: 8,
+  },
+  dateLabel: {
+    fontSize: 14,
+    marginBottom: 8,
+    color: '#666',
+  },
+  datePicker: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    padding: 12,
+  },
+  datePickerActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 16,
+  },
+  filterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  filterTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  sortOptionsRow: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  sortOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    marginRight: 8,
+    flex: 1,
+  },
+  selectedSortOption: {
+    borderColor: GOLD.primary,
+    backgroundColor: GOLD.light,
+  },
+  sortOptionText: {
+    fontSize: 14,
+  },
+  datePickerHelper: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 8,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  selectedDateContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  selectedDateLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginRight: 8,
+  },
+  selectedDateValue: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  clearDateButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  activeFilterButton: {
+    backgroundColor: GOLD.light,
   },
 });
 

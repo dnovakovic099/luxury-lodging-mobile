@@ -25,6 +25,13 @@ import { fetchListings, getListingFinancials } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { saveToCache, loadFromCache, CACHE_KEYS } from '../utils/cacheUtils';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Cache keys for listings screen
+const LISTINGS_REVENUE_CACHE = 'cache_listings_revenue';
+// Debug flag for cache logging
+const DEBUG_CACHE = true;
 
 // Define gold colors for consistency
 const GOLD = {
@@ -269,6 +276,9 @@ const ListingsScreen = () => {
   const [activeFilter, setActiveFilter] = useState('all');
   const insets = useSafeAreaInsets();
   const scrollY = useRef(new Animated.Value(0)).current;
+  // Add state for tracking when data is loaded from cache
+  const [revenuesFromCache, setRevenuesFromCache] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   
   const headerOpacity = scrollY.interpolate({
     inputRange: [0, 80],
@@ -327,20 +337,133 @@ const ListingsScreen = () => {
     return itemAnimatedValues[id];
   };
 
+  // Function to load property revenues from cache
+  const loadRevenuesFromCache = async () => {
+    try {
+      if (DEBUG_CACHE) console.log('Attempting to load property revenues from cache...');
+      
+      // Check if cache key exists
+      const allKeys = await AsyncStorage.getAllKeys();
+      const hasRevenuesCache = allKeys.includes(LISTINGS_REVENUE_CACHE);
+      
+      if (DEBUG_CACHE) {
+        console.log('Has property revenues cache key:', hasRevenuesCache);
+      }
+      
+      if (!hasRevenuesCache) {
+        return false;
+      }
+      
+      // Try using cacheUtils function to get the data
+      const cachedRevenues = await loadFromCache(LISTINGS_REVENUE_CACHE);
+      
+      if (cachedRevenues && typeof cachedRevenues === 'object') {
+        if (DEBUG_CACHE) {
+          console.log('Loaded property revenues from cache successfully');
+          console.log('Properties with cached revenue:', Object.keys(cachedRevenues).length);
+        }
+        
+        // Update state with cached revenues
+        setPropertyRevenues(cachedRevenues);
+        setRevenuesFromCache(true);
+        return true;
+      }
+      
+      // Try direct access as fallback
+      if (DEBUG_CACHE) console.log('cacheUtils loading failed, trying direct access...');
+      
+      const rawCachedValue = await AsyncStorage.getItem(LISTINGS_REVENUE_CACHE);
+      if (!rawCachedValue) {
+        if (DEBUG_CACHE) console.log('No raw cache value found');
+        return false;
+      }
+      
+      try {
+        const parsedValue = JSON.parse(rawCachedValue);
+        if (DEBUG_CACHE) console.log('Parsed raw cache value successfully');
+        
+        // Extract data based on structure
+        let extractedData = parsedValue;
+        
+        // If data is wrapped in cacheUtils format, extract it
+        if (parsedValue?.data && parsedValue?.timestamp) {
+          extractedData = parsedValue.data;
+          if (DEBUG_CACHE) console.log('Extracted data from cacheUtils wrapper');
+        }
+        
+        if (typeof extractedData === 'object') {
+          if (DEBUG_CACHE) {
+            console.log('Direct cache access revenues summary:', {
+              propertiesCount: Object.keys(extractedData).length
+            });
+          }
+          
+          // Update state with extracted values
+          setPropertyRevenues(extractedData);
+          setRevenuesFromCache(true);
+          return true;
+        }
+      } catch (parseError) {
+        console.error('Failed to parse raw cached value:', parseError);
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error loading property revenues from cache:', error);
+      return false;
+    }
+  };
+  
+  // Function to save property revenues to cache
+  const saveRevenuesToCache = async () => {
+    try {
+      if (Object.keys(propertyRevenues).length === 0) {
+        if (DEBUG_CACHE) console.log('No property revenues to cache');
+        return;
+      }
+      
+      if (DEBUG_CACHE) {
+        console.log('Saving property revenues to cache...');
+        console.log('Properties count:', Object.keys(propertyRevenues).length);
+      }
+      
+      await saveToCache(LISTINGS_REVENUE_CACHE, propertyRevenues);
+      
+      if (DEBUG_CACHE) {
+        console.log('Property revenues saved to cache successfully');
+      }
+    } catch (error) {
+      console.error('Error saving property revenues to cache:', error);
+    }
+  };
+
   useEffect(() => {
     if (listings && listings.length > 0) {
-      loadFinancialData();
+      // First try to load from cache, then load fresh data
+      loadRevenuesFromCache().then(hasCachedData => {
+        loadFinancialData();
+      });
     } else {
       setLoading(false);
     }
   }, [listings]);
+  
+  // Add effect to save revenues to cache when they change
+  useEffect(() => {
+    if (Object.keys(propertyRevenues).length > 0) {
+      saveRevenuesToCache();
+    }
+  }, [propertyRevenues]);
 
   const loadFinancialData = async () => {
     if (!listings || !listings.length) {
       return;
     }
     
-    setLoading(true);
+    // Only show loading if we don't have cached data
+    if (!revenuesFromCache) {
+      setLoading(true);
+    }
     
     try {
       const revenueByProperty = {};
@@ -609,9 +732,21 @@ const ListingsScreen = () => {
     </View>
   );
 
-  const onRefresh = React.useCallback(() => {
-    loadFinancialData();
-  }, []);
+  const onRefresh = () => {
+    setRefreshing(true);
+    // Reset the cached state while refreshing
+    setRevenuesFromCache(false);
+    
+    // Refresh financial data
+    loadFinancialData()
+      .then(() => {
+        // Save to cache after refresh
+        saveRevenuesToCache();
+      })
+      .finally(() => {
+        setRefreshing(false);
+      });
+  };
 
   if (loading && (!listings || listings.length === 0)) {
     return (
@@ -684,7 +819,7 @@ const ListingsScreen = () => {
         }
         refreshControl={
           <RefreshControl
-            refreshing={loading}
+            refreshing={refreshing}
             onRefresh={onRefresh}
             tintColor={GOLD.primary}
             colors={[GOLD.primary]}
