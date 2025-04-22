@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { formatCurrency } from '../utils/formatters';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useTheme } from '../context/ThemeContext';
 
 // Define GOLD constant locally
 const GOLD = {
@@ -11,6 +12,8 @@ const GOLD = {
 };
 
 const RevenueSummary = ({ data, style }) => { 
+  const { theme, isDarkMode } = useTheme();
+  
   // Safely destructure values with fallbacks
   const { 
     totalRevenue = 0,
@@ -25,33 +28,40 @@ const RevenueSummary = ({ data, style }) => {
   };
 
   return (
-    <View style={[styles.container, style]}>
+    <View style={[
+      styles.container, 
+      {
+        backgroundColor: theme.surface,
+        borderBottomColor: theme.borderColor
+      },
+      style
+    ]}>
       <View style={styles.item}>
         <View style={styles.iconContainer}>
-          <Ionicons name="wallet-outline" size={16} color={GOLD.primary} />
+          <Ionicons name="wallet-outline" size={16} color={theme.primary} />
         </View>
-        <Text style={styles.label}>TOTAL</Text>
-        <Text style={styles.value}>{formatValue(totalRevenue)}</Text>
+        <Text style={[styles.label, { color: theme.text.secondary }]}>TOTAL</Text>
+        <Text style={[styles.value, { color: theme.primary }]}>{formatValue(totalRevenue)}</Text>
       </View>
       
-      <View style={styles.separator} />
+      <View style={[styles.separator, { backgroundColor: theme.borderColor }]} />
       
       <View style={styles.item}>
         <View style={styles.iconContainer}>
-          <Ionicons name="calendar-outline" size={16} color={GOLD.primary} />
+          <Ionicons name="calendar-outline" size={16} color={theme.primary} />
         </View>
-        <Text style={styles.label}>FUTURE</Text>
-        <Text style={styles.value}>{formatValue(futureRevenue)}</Text>
+        <Text style={[styles.label, { color: theme.text.secondary }]}>FUTURE</Text>
+        <Text style={[styles.value, { color: theme.primary }]}>{formatValue(futureRevenue)}</Text>
       </View>
       
-      <View style={styles.separator} />
+      <View style={[styles.separator, { backgroundColor: theme.borderColor }]} />
       
       <View style={styles.item}>
         <View style={styles.iconContainer}>
-          <Ionicons name="people-outline" size={16} color={GOLD.primary} />
+          <Ionicons name="people-outline" size={16} color={theme.primary} />
         </View>
-        <Text style={styles.label}>SHARING</Text>
-        <Text style={styles.value}>{formatValue(sharingRevenue)}</Text>
+        <Text style={[styles.label, { color: theme.text.secondary }]}>SHARING</Text>
+        <Text style={[styles.value, { color: theme.primary }]}>{formatValue(sharingRevenue)}</Text>
       </View>
     </View>
   );
@@ -61,17 +71,15 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     marginHorizontal: 0,
-    backgroundColor: '#0E0E0E', // Even darker for contrast
     borderRadius: 0,
-    paddingVertical: 16, // Increased vertical padding
+    paddingVertical: 16,
     paddingHorizontal: 16,
     justifyContent: 'space-around',
     alignItems: 'center',
     marginTop: 0,
     marginBottom: 16,
-    height: 64, // Slightly increased height
+    height: 64,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
@@ -82,31 +90,28 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     alignItems: 'center',
     flex: 1,
-    paddingVertical: 2, // Added padding to items
+    paddingVertical: 2,
   },
   iconContainer: {
-    marginBottom: 6, // Increased spacing after icon
-    marginTop: 1, // Small top margin
+    marginBottom: 6,
+    marginTop: 1,
   },
   label: {
     fontSize: 9,
-    color: 'rgba(255, 255, 255, 0.5)',
     fontWeight: '500',
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
   value: {
     fontSize: 15,
-    color: GOLD.primary,
     fontWeight: '600',
     fontFamily: Platform.OS === 'ios' ? 'SF Pro Text' : 'sans-serif',
-    marginTop: 2, // Increased spacing between label and value
-    marginBottom: 1, // Small bottom margin
+    marginTop: 2,
+    marginBottom: 1,
   },
   separator: {
     width: 1,
     height: '70%',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
 });
 

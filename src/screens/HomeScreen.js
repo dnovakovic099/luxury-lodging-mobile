@@ -1,25 +1,70 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
   RefreshControl,
   ScrollView,
   ActivityIndicator,
   SafeAreaView,
   TouchableOpacity,
-  Text
+  ImageBackground,
+  Animated,
+  StatusBar,
+  Image,
+  Platform
 } from 'react-native';
+import { BlurView } from '@react-native-community/blur';
 import RevenueSummary from '../components/RevenueSummary';
 import RevenueChart from '../components/RevenueChart';
 import PropertyUpgrades from '../components/PropertyUpgrades';
 import { theme } from '../theme';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { getListingFinancials, getMonthlyRevenueData } from '../services/api';
 import UpcomingReservations from '../components/UpcomingReservations';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// Gold color constants for consistency
+const GOLD = {
+  primary: '#B6944C',
+  secondary: '#DCBF78',
+  light: 'rgba(182, 148, 76, 0.15)',
+  gradient: '#D4AF37'
+};
+
+// Helper to get time of day greeting
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good Morning';
+  if (hour < 18) return 'Good Afternoon';
+  return 'Good Evening';
+};
+
+// Helper to format currency with cents
+const formatFullCurrency = (value) => {
+  if (typeof value !== 'number') return '$0.00';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(value);
+};
 
 const HomeScreen = ({ navigation }) => {
-  const { listings, upcomingReservations, refreshData, isLoading: authLoading, signOut, user, fetchUpcomingReservations, upcomingReservationsLoading } = useAuth();
+  const { 
+    listings, 
+    upcomingReservations, 
+    refreshData, 
+    isLoading: authLoading, 
+    signOut, 
+    userData,
+    fetchUpcomingReservations, 
+    upcomingReservationsLoading 
+  } = useAuth();
+  const { theme: appTheme, isDarkMode, toggleTheme } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [futureRevenue, setFutureRevenue] = useState(0);
@@ -31,6 +76,69 @@ const HomeScreen = ({ navigation }) => {
     'ALL': { labels: [], data: [], years: [], total: 0 }
   });
   const [loading, setLoading] = useState(true);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const insets = useSafeAreaInsets();
+  
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
+  
+  // Header animation based on scroll
+  const headerOpacity = scrollY.interpolate({
+    inputRange: [0, 80],
+    outputRange: [0, 1],
+    extrapolate: 'clamp'
+  });
+  
+  const headerHeight = scrollY.interpolate({
+    inputRange: [0, 80],
+    outputRange: [0, Platform.OS === 'ios' ? 45 + insets.top : 55],
+    extrapolate: 'clamp'
+  });
+  
+  // Run entrance animations
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true
+      })
+    ]).start();
+  }, []);
+  
+  // Log auth state on mount
+  useEffect(() => {
+    console.log('Auth state on mount:', { 
+      userDataExists: !!userData,
+      userDataValue: userData,
+      authLoading,
+      listingsCount: listings?.length
+    });
+  }, []);
+  
+  // Log when auth loading state changes
+  useEffect(() => {
+    console.log('Auth loading changed:', { 
+      authLoading, 
+      userDataExists: !!userData 
+    });
+    
+    // Log userData when auth is done loading
+    if (!authLoading && userData) {
+      console.log('User data after auth loaded:', userData);
+    }
+  }, [authLoading]);
+  
+  // Log when userData object changes
+  useEffect(() => {
+    console.log('User data changed:', userData);
+  }, [userData]);
   
   // Load financial data directly from API
   const loadFinancialData = async () => {
@@ -89,7 +197,7 @@ const HomeScreen = ({ navigation }) => {
       setFutureRevenue(explicitFutureRevenue);
       
       // 3. Get monthly revenue data for chart directly from API
-      const monthlyData = await getMonthlyRevenueData(listingIds, 24); // Get 24 months of data for better filtering
+      const monthlyData = await getMonthlyRevenueData(listingIds, 24);
       
       // Make sure we have years data, if not, generate it
       if (!monthlyData.years || monthlyData.years.length === 0) {
@@ -283,6 +391,9 @@ const HomeScreen = ({ navigation }) => {
   useEffect(() => {
     loadDashboardData();
     fetchUpcomingReservations();
+    
+    // Log userData object to see available fields
+    console.log('User data:', userData);
   }, []);
   
   const loadDashboardData = async () => {
@@ -450,19 +561,157 @@ const HomeScreen = ({ navigation }) => {
     }
   };
   
+  const renderHeroSection = () => {
+    // Get total properties count
+    const propertiesCount = listings?.length || 0;
+    
+    // Calculate monthly revenue average (from 6M data)
+    const sixMonthAvg = chartData['6M']?.total 
+      ? Math.round(chartData['6M'].total / (chartData['6M'].data.length || 1)) 
+      : 0;
+      
+    // Calculate YTD monthly average
+    const ytdMonthlyAvg = chartData['YTD']?.total && chartData['YTD']?.data?.length
+      ? Math.round(chartData['YTD'].total / chartData['YTD'].data.length)
+      : 0;
+    
+    // Format user's full name with better logging
+    let fullName = 'Luxury Host';
+    if (userData) {
+      console.log('User data in renderHeroSection:', {
+        email: userData.email,
+        sub: userData.sub,
+        name: userData.name,
+        fullUserData: userData
+      });
+      
+      // Try different possible name properties
+      if (userData.name) {
+        fullName = userData.name;
+      } else if (userData.firstName || userData.lastName) {
+        fullName = `${userData.firstName || ''} ${userData.lastName || ''}`.trim();
+      } else if (userData.sub) {
+        // Sometimes the name might be in the sub field
+        fullName = userData.sub;
+      } else if (userData.email) {
+        // Use email without domain as fallback
+        fullName = userData.email.split('@')[0];
+      }
+      
+      if (!fullName) {
+        fullName = 'Luxury Host';
+      }
+    }
+    
+    // Determine if the metrics are loading
+    const metricsLoading = loading || refreshing;
+    
+    return (
+      <Animated.View 
+        style={[
+          styles.heroSection,
+          { 
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }]
+          }
+        ]}
+      >
+        <View style={styles.heroGradient}>
+          {/* Subtle geometric pattern */}
+          <View style={styles.patternOverlay}>
+            <View style={styles.patternDot} />
+            <View style={styles.patternLine} />
+            <View style={styles.patternCircle} />
+          </View>
+          
+          <View style={styles.heroContent}>
+            {/* User greeting with left-aligned modern design */}
+            <View style={styles.greetingRow}>
+              <View>
+                <Text style={styles.greeting}>{getGreeting()}</Text>
+                <Text style={styles.userName}>{fullName}</Text>
+              </View>
+              
+              <TouchableOpacity style={styles.refreshButton} onPress={onRefresh}>
+                <Ionicons name="refresh-outline" size={18} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+            
+            {/* Key metrics row */}
+            <View style={styles.metricsContainer}>
+              {/* Properties metric */}
+              <View style={styles.metricCard}>
+                {metricsLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" style={styles.metricLoader} />
+                ) : (
+                  <Text style={styles.metricValue}>{propertiesCount}</Text>
+                )}
+                <View style={styles.metricLabelRow}>
+                  <Ionicons name="home-outline" size={12} color="rgba(255,255,255,0.7)" />
+                  <Text style={styles.metricLabel}>PROPERTIES</Text>
+                </View>
+              </View>
+              
+              {/* 6M monthly average */}
+              <View style={styles.metricCard}>
+                {metricsLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" style={styles.metricLoader} />
+                ) : (
+                  <Text style={styles.metricValue}>{formatFullCurrency(sixMonthAvg)}</Text>
+                )}
+                <View style={styles.metricLabelRow}>
+                  <Ionicons name="bar-chart-outline" size={12} color="rgba(255,255,255,0.7)" />
+                  <Text style={styles.metricLabel}>AVG/MO (6M)</Text>
+                </View>
+              </View>
+              
+              {/* YTD monthly average */}
+              <View style={styles.metricCard}>
+                {metricsLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" style={styles.metricLoader} />
+                ) : (
+                  <Text style={styles.metricValue}>{formatFullCurrency(ytdMonthlyAvg)}</Text>
+                )}
+                <View style={styles.metricLabelRow}>
+                  <Ionicons name="calendar-outline" size={12} color="rgba(255,255,255,0.7)" />
+                  <Text style={styles.metricLabel}>AVG/MO YTD</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Animated.View>
+    );
+  };
+  
+  // Add loading state for RevenueSummary
+  const renderRevenueSummary = () => {
+    return (
+      <RevenueSummary 
+        data={{
+          totalRevenue: totalRevenue,
+          futureRevenue: futureRevenue,
+          sharingRevenue: sharingRevenue
+        }}
+        loading={loading || refreshing}
+        style={styles.revenueSummary}
+      />
+    );
+  };
+
   const renderChart = () => {
     if (loading && !chartData['6M']?.data?.length) {
       return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-          <Text style={styles.loadingText}>Loading revenue data...</Text>
+        <View style={[styles.loadingContainer, { backgroundColor: appTheme.surface }]}>
+          <ActivityIndicator size="large" color={appTheme.primary} />
+          <Text style={[styles.loadingText, { color: appTheme.text.secondary }]}>Loading revenue data...</Text>
         </View>
       );
     }
     
     return <RevenueChart 
       data={chartData} 
-      loading={loading} 
+      loading={loading || refreshing} 
       onFetchData={handleChartDataFetch}
     />;
   };
@@ -475,55 +724,149 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
+  // Handle theme toggle
+  const handleThemeToggle = () => {
+    toggleTheme();
+  };
+  
+  const handleMenuPress = () => {
+    // Implement menu functionality here
+    // For now, we'll just use this as a placeholder
+    console.log('Menu pressed');
+  };
+  
+  const handleProfilePress = () => {
+    // Navigate to profile or account settings
+    navigation.navigate('Profile');
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView
+    <SafeAreaView style={[styles.container, { backgroundColor: GOLD.primary }]}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
+      
+      {/* Animated Header */}
+      <Animated.View style={[
+        styles.animatedHeader,
+        { 
+          height: headerHeight,
+          opacity: headerOpacity,
+          top: 0,
+        }
+      ]}>
+        <View style={styles.headerGradient}>
+          <View style={[styles.headerContent, { paddingTop: Platform.OS === 'ios' ? insets.top : 0 }]}>
+            <TouchableOpacity onPress={handleMenuPress} style={styles.headerButton}>
+              <Ionicons name="menu-outline" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+            
+            <Text style={styles.headerTitle}>Luxury Lodging Host</Text>
+            
+            {/* Completely hide dark mode button */}
+            <View style={{width: 24}} />
+          </View>
+        </View>
+      </Animated.View>
+      
+      {/* Main Content */}
+      <Animated.ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.contentContainer}
+        contentContainerStyle={[
+          styles.contentContainer,
+          { paddingTop: 0 }
+        ]}
+        scrollEventThrottle={16}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: false }
+        )}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={theme.colors.primary}
-            colors={[theme.colors.primary]}
+            tintColor="#FFFFFF"
+            colors={["#FFFFFF"]}
           />
         }
       >
-        {/* TEST CALENDAR BUTTON */}
-        {/* <TouchableOpacity 
-          style={styles.calendarTestButton}
-          onPress={() => navigation.navigate('Calendar')}
-        >
-          <Ionicons name="calendar" size={24} color="#FFFFFF" />
-          <Text style={styles.calendarTestButtonText}>Open Calendar View</Text>
-        </TouchableOpacity> */}
+        {/* Top section with greeting and stats */}
+        {renderHeroSection()}
+        
+        {/* White Content Container */}
+        <View style={styles.whiteContentContainer}>
+          {/* RevenueSummary with loading state */}
+          {renderRevenueSummary()}
 
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Luxury Lodging Host</Text>
-          <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
-            <Ionicons name="log-out-outline" size={24} color={theme.colors.text.secondary} />
-          </TouchableOpacity>
+          {/* Main Content Sections */}
+          <View style={styles.mainContent}>
+            <Animated.View 
+              style={{ 
+                opacity: fadeAnim, 
+                transform: [{ translateY: Animated.multiply(slideAnim, 1.2) }]
+              }}
+            >
+              <UpcomingReservations
+                reservations={upcomingReservations}
+                loading={upcomingReservationsLoading || authLoading}
+              />
+            </Animated.View>
+            
+            <Animated.View 
+              style={{ 
+                opacity: fadeAnim, 
+                transform: [{ translateY: Animated.multiply(slideAnim, 1.4) }]
+              }}
+            >
+              {renderChart()}
+            </Animated.View>
+            
+            <Animated.View 
+              style={{ 
+                opacity: fadeAnim, 
+                transform: [{ translateY: Animated.multiply(slideAnim, 1.6) }]
+              }}
+            >
+              <PropertyUpgrades />
+            </Animated.View>
+          </View>
+          
+          {/* Action Buttons */}
+          <View style={styles.actionButtonsContainer}>
+            {/* <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={handleThemeToggle}
+            >
+              <View style={styles.actionButtonIcon}>
+                <Ionicons 
+                  name={isDarkMode ? "sunny-outline" : "moon-outline"} 
+                  size={20} 
+                  color={GOLD.primary} 
+                />
+              </View>
+              <Text style={styles.actionButtonText}>
+                {isDarkMode ? "Light Mode" : "Dark Mode"}
+              </Text>
+            </TouchableOpacity> */}
+            
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={handleSignOut}
+            >
+              <View style={styles.actionButtonIcon}>
+                <Ionicons name="log-out-outline" size={20} color={GOLD.primary} />
+              </View>
+              <Text style={styles.actionButtonText}>Sign Out</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-        
-        <RevenueSummary 
-          data={{
-            totalRevenue: totalRevenue,
-            futureRevenue: futureRevenue,
-            sharingRevenue: sharingRevenue
-          }}
-          loading={loading}
-          style={styles.revenueSummary}
-        />
-
-        <UpcomingReservations
-          reservations={upcomingReservations}
-          loading={upcomingReservationsLoading || authLoading}
-        />
-        
-        {renderChart()}
-        
-        <PropertyUpgrades />
-      </ScrollView>
+      </Animated.ScrollView>
+      
+      {/* Fixed Floating Action Button */}
+      <TouchableOpacity 
+        style={styles.fab}
+        onPress={() => navigation.navigate('Calendar')}
+      >
+        <Ionicons name="calendar" size={24} color="#FFFFFF" />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 };
@@ -531,68 +874,284 @@ const HomeScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: GOLD.primary,
   },
-  header: {
+  animatedHeader: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    overflow: 'hidden',
+  },
+  headerGradient: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: GOLD.primary,
+  },
+  headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#000000',
-    borderBottomColor: '#333',
-    borderBottomWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    height: '100%',
+  },
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '600',
-    color: '#B6944C',
-    letterSpacing: 0.5,
-  },
-  revenueSummary: {
-    marginTop: 0,
-    marginBottom: 16,
-  },
-  signOutButton: {
-    padding: 8,
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   scrollView: {
     flex: 1,
+    paddingTop: Platform.OS === 'ios' ? 0 : StatusBar.currentHeight || 0,
   },
   contentContainer: {
     flexGrow: 1,
-    paddingTop: 0,
-    paddingBottom: 90,
+    paddingBottom: 32,
+  },
+  heroSection: {
+    width: '100%',
+    height: 150, // Added more height to accommodate spacing
+    overflow: 'hidden',
+  },
+  heroGradient: {
+    width: '100%',
+    height: '100%',
+    padding: 12,
+    backgroundColor: GOLD.primary,
+    position: 'relative',
+  },
+  patternOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0.1,
+    overflow: 'hidden',
+  },
+  patternDot: {
+    position: 'absolute',
+    top: 40,
+    right: 50,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#FFFFFF',
+  },
+  patternLine: {
+    position: 'absolute',
+    top: 120,
+    left: -20,
+    width: 150,
+    height: 5,
+    backgroundColor: '#FFFFFF',
+    transform: [{ rotate: '45deg' }],
+  },
+  patternCircle: {
+    position: 'absolute',
+    bottom: -60,
+    right: -60,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 10,
+    borderColor: '#FFFFFF',
+  },
+  heroContent: {
+    flex: 1,
+    justifyContent: 'flex-start',
+    zIndex: 1,
+  },
+  greetingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginTop: 4, // Slightly more space
+    marginBottom: 0,
+  },
+  greeting: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginBottom: 1,
+  },
+  userName: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    marginBottom: 12, // Increased space below username
+  },
+  refreshButton: {
+    width: 30, // Reduced size
+    height: 30, // Reduced size
+    borderRadius: 15,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  metricsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8, // Increased space above metrics
+    marginBottom: 0,
+  },
+  metricCard: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    borderRadius: 10, // Slightly smaller radius
+    paddingVertical: 6, // Smaller padding
+    paddingHorizontal: 6, // Smaller padding
+    marginHorizontal: 3,
+    alignItems: 'center',
+  },
+  metricValue: {
+    fontSize: 15, // Smaller text
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  metricLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  metricLabel: {
+    fontSize: 7, // Smaller label
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginLeft: 2,
+    letterSpacing: 0.5,
+  },
+  spacer: {
+    height: 0,
+  },
+  whiteContentContainer: {
+    backgroundColor: '#FFFFFF',
+    flex: 1,
+    marginTop: -1, // No gap between gold and white sections
+    borderTopLeftRadius: 0, // No rounded corners
+    borderTopRightRadius: 0, // No rounded corners
+    paddingTop: 12,
+    paddingBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 3,
+    position: 'relative',
+    zIndex: 5,
+  },
+  decorativeElement: {
+    alignItems: 'center',
+    marginTop: 0,
+    marginBottom: 15,
+    zIndex: 10,
+  },
+  goldLine: {
+    width: 40,
+    height: 4,
+    backgroundColor: GOLD.primary,
+    borderRadius: 2,
+  },
+  revenueSummary: {
+    marginHorizontal: 16,
+    borderRadius: 16,
+    height: 80,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    backgroundColor: '#FFFFFF',
+  },
+  mainContent: {
+    paddingTop: 16,
   },
   loadingContainer: {
     height: 300,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(25, 25, 25, 0.7)',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     marginVertical: 8,
+    marginHorizontal: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#E5E0D5',
   },
   loadingText: {
-    color: theme.colors.text.secondary,
+    color: '#888888',
     marginTop: 16,
     fontSize: 14,
   },
-  calendarTestButton: {
-    backgroundColor: '#FF385C',
-    borderRadius: 8,
+  actionButtonsContainer: {
+    alignItems: 'center',
+    marginTop: 30,
+    marginBottom: 10,
+    paddingHorizontal: 16,
+  },
+  actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    marginHorizontal: 16,
-    marginVertical: 16,
+    backgroundColor: 'rgba(182, 148, 76, 0.08)',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginHorizontal: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(182, 148, 76, 0.15)',
   },
-  calendarTestButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 16,
-    marginLeft: 8,
+  actionButtonIcon: {
+    marginRight: 8,
+  },
+  actionButtonText: {
+    color: '#333333',
+    fontWeight: '500',
+    fontSize: 14,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 30 : 25,
+    right: 25,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: GOLD.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    zIndex: 999,
+  },
+  metricLoader: {
+    marginBottom: 2, // Match value text margin
+    height: 15, // Approximately the same height as the text
   },
 });
 
 export default HomeScreen;
+
 

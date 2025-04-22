@@ -1,9 +1,12 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { theme } from '../theme';
+import { theme as defaultTheme } from '../theme';
 import AnimatedGradeBar from './AnimatedGradeBar';
+import { useTheme } from '../context/ThemeContext';
 
 const GradeIndicator = ({ grade, label, icon: Icon, details, stats, aiRecommendation }) => {
+  const { theme } = useTheme();
+  
   const getGradeColor = (value) => {
     if (value >= 80) return '#22C55E';
     if (value >= 40) return '#F59E0B';
@@ -13,11 +16,14 @@ const GradeIndicator = ({ grade, label, icon: Icon, details, stats, aiRecommenda
   const gradeColor = getGradeColor(grade);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { 
+      backgroundColor: theme.surface,
+      borderColor: theme.borderColor
+    }]}>
       <View style={styles.headerRow}>
         <View style={styles.labelContainer}>
-          <Icon size={16} color={theme.colors.text.secondary} />
-          <Text style={styles.label}>{label}</Text>
+          <Icon size={16} color={theme.text.secondary} />
+          <Text style={[styles.label, { color: theme.text.primary }]}>{label}</Text>
         </View>
         <View style={[styles.gradeBadge, { backgroundColor: `${gradeColor}15` }]}>
           <Text style={[styles.gradeValue, { color: gradeColor }]}>{grade}%</Text>
@@ -26,7 +32,7 @@ const GradeIndicator = ({ grade, label, icon: Icon, details, stats, aiRecommenda
 
       <View style={styles.contentContainer}>
         {stats && (
-          <Text style={styles.stats}>{stats}</Text>
+          <Text style={[styles.stats, { color: theme.text.secondary }]}>{stats}</Text>
         )}
 
         <View style={styles.barWrapper}>
@@ -34,11 +40,11 @@ const GradeIndicator = ({ grade, label, icon: Icon, details, stats, aiRecommenda
         </View>
 
         {details && (
-          <Text style={styles.details}>{details}</Text>
+          <Text style={[styles.details, { color: theme.text.secondary }]}>{details}</Text>
         )}
         
         {aiRecommendation && (
-          <Text style={styles.aiRecommendation}>{aiRecommendation}</Text>
+          <Text style={[styles.aiRecommendation, { color: theme.primary }]}>{aiRecommendation}</Text>
         )}
       </View>
     </View>
@@ -47,11 +53,9 @@ const GradeIndicator = ({ grade, label, icon: Icon, details, stats, aiRecommenda
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     padding: 12,
     borderWidth: 1,
-    borderColor: theme.colors.card.border,
   },
   headerRow: {
     flexDirection: 'row',
@@ -67,7 +71,6 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '600',
-    color: theme.colors.text.primary,
   },
   gradeBadge: {
     paddingHorizontal: 8,
@@ -84,19 +87,16 @@ const styles = StyleSheet.create({
   },
   stats: {
     fontSize: 13,
-    color: theme.colors.text.secondary,
   },
   barWrapper: {
     marginRight: 36, // Space for the percentage
   },
   details: {
     fontSize: 12,
-    color: theme.colors.text.secondary,
     lineHeight: 16,
   },
   aiRecommendation: {
     fontSize: 12,
-    color: theme.colors.primary,
     fontStyle: 'italic',
     lineHeight: 16,
   },

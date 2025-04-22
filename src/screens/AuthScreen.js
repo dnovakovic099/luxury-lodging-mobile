@@ -11,11 +11,13 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
-import { theme } from '../theme';
+import { theme as defaultTheme } from '../theme';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 
 const AuthScreen = () => {
   const { signIn, signInWithGoogle, getToken, checkToken, removeToken, errorMessage, isLoading: authLoading } = useAuth();
+  const { theme, isDarkMode } = useTheme();
   const [email, setEmail] = useState('dirose9336@gmail.com');
   const [password, setPassword] = useState('Abc123!!');
   const [isLoading, setIsLoading] = useState(false);
@@ -49,59 +51,73 @@ const AuthScreen = () => {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}>
-      <View style={styles.content}>
-        <Image source={require('../assets/logo.png')} style={styles.logo} />
+      style={[styles.container, { backgroundColor: theme.background }]}>
+      <View style={[styles.container, { zIndex: 1 }]} pointerEvents="auto">
+        <View style={styles.content}>
+          <Image source={require('../assets/logo.png')} style={styles.logo} />
 
-        <View style={styles.form}>
-          <TextInput
-            style={styles.input}
-            placeholder="Email"
-            placeholderTextColor={theme.colors.text.secondary}
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            editable={!isLoading}
-          />
+          <View style={styles.form} pointerEvents="auto">
+            <TextInput
+              style={[styles.input, { 
+                backgroundColor: isDarkMode ? '#333333' : '#F0F0F0',
+                color: theme.text.primary 
+              }]}
+              placeholder="Email"
+              placeholderTextColor={theme.text.secondary}
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              editable={!isLoading}
+              importantForAutofill="yes"
+              textContentType="username"
+            />
 
-          <TextInput
-            style={styles.input}
-            placeholder="Password"
-            placeholderTextColor={theme.colors.text.secondary}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            editable={!isLoading}
-          />
+            <TextInput
+              style={[styles.input, { 
+                backgroundColor: isDarkMode ? '#333333' : '#F0F0F0',
+                color: theme.text.primary 
+              }]}
+              placeholder="Password"
+              placeholderTextColor={theme.text.secondary}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              editable={!isLoading}
+              importantForAutofill="yes"
+              textContentType="password"
+            />
 
-          {/*<TouchableOpacity style={styles.forgotPassword}>*/}
-          {/*  <Text style={styles.forgotPasswordText}>Forgot Password?</Text>*/}
-          {/*</TouchableOpacity>*/}
+            {/*<TouchableOpacity style={styles.forgotPassword}>*/}
+            {/*  <Text style={styles.forgotPasswordText}>Forgot Password?</Text>*/}
+            {/*</TouchableOpacity>*/}
 
-          <TouchableOpacity
-            style={[styles.button, isLoading && styles.buttonDisabled]}
-            onPress={handleAuth}
-            disabled={isLoading}>
-            {isLoading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.buttonText}>Sign In</Text>
-            )}
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, isLoading && styles.buttonDisabled]}
+              onPress={handleAuth}
+              disabled={isLoading}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              {isLoading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.buttonText}>Sign In</Text>
+              )}
+            </TouchableOpacity>
 
-          <Text style={styles.errorText}>{errorMessage}</Text>
+            <Text style={styles.errorText}>{errorMessage}</Text>
 
-          {/*<TouchableOpacity*/}
-          {/*  style={[styles.button, styles.buttonGoogle]}*/}
-          {/*  onPress={handleGoogleSignIn}*/}
-          {/*>*/}
-          {/*  <Image*/}
-          {/*    source={require('../assets/google.webp')}*/}
-          {/*    style={styles.googleLogo}*/}
-          {/*  />*/}
-          {/*  <Text style={styles.buttonGoogleText}>Sign in with Google</Text>*/}
-          {/*</TouchableOpacity>*/}
+            {/*<TouchableOpacity*/}
+            {/*  style={[styles.button, styles.buttonGoogle]}*/}
+            {/*  onPress={handleGoogleSignIn}*/}
+            {/*>*/}
+            {/*  <Image*/}
+            {/*    source={require('../assets/google.webp')}*/}
+            {/*    style={styles.googleLogo}*/}
+            {/*  />*/}
+            {/*  <Text style={styles.buttonGoogleText}>Sign in with Google</Text>*/}
+            {/*</TouchableOpacity>*/}
+          </View>
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -112,43 +128,42 @@ const AuthScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    zIndex: 999,
+    elevation: 999,
   },
   content: {
     flex: 1,
     justifyContent: 'center',
-    paddingHorizontal: theme.spacing.xl,
+    paddingHorizontal: defaultTheme.spacing.xl,
   },
   logo: {
     alignSelf: 'center',
-    marginBottom: theme.spacing.xl * 2,
+    marginBottom: defaultTheme.spacing.xl * 2,
     width: 200,
     height: 200,
     resizeMode: 'contain',
   },
   form: {
-    gap: theme.spacing.lg,
+    gap: defaultTheme.spacing.lg,
   },
   input: {
-    backgroundColor: '#333333',
-    borderRadius: theme.borderRadius.lg,
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.md,
-    color: '#FFFFFF',
-    ...theme.typography.body,
+    borderRadius: defaultTheme.borderRadius.lg,
+    paddingHorizontal: defaultTheme.spacing.lg,
+    paddingVertical: defaultTheme.spacing.md,
+    ...defaultTheme.typography.body,
   },
   forgotPassword: {
     alignSelf: 'flex-end',
-    marginBottom: theme.spacing.lg,
+    marginBottom: defaultTheme.spacing.lg,
   },
   forgotPasswordText: {
-    ...theme.typography.caption,
-    color: theme.colors.primary,
+    ...defaultTheme.typography.caption,
+    color: defaultTheme.colors.primary,
   },
   button: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: theme.borderRadius.lg,
-    paddingVertical: theme.spacing.md,
+    backgroundColor: defaultTheme.colors.primary,
+    borderRadius: defaultTheme.borderRadius.lg,
+    paddingVertical: defaultTheme.spacing.md,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -156,7 +171,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   buttonText: {
-    ...theme.typography.button,
+    ...defaultTheme.typography.button,
     color: '#FFFFFF',
   },
   buttonGoogle: {
@@ -168,10 +183,10 @@ const styles = StyleSheet.create({
   googleLogo: {
     width: 24,
     height: 24,
-    marginRight: theme.spacing.md,
+    marginRight: defaultTheme.spacing.md,
   },
   buttonGoogleText: {
-    ...theme.typography.button,
+    ...defaultTheme.typography.button,
     color: '#000000',
   },
   errorText: {

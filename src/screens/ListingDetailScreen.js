@@ -13,11 +13,12 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { PropertyInfo, StatItem } from '../components/DetailComponent';
 import RevenueChart from '../components/RevenueChart';
-import { theme } from '../theme';
+import { theme as defaultTheme } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { getListingFinancials, getMonthlyRevenueData } from '../services/api';
 import { useFocusEffect } from '@react-navigation/native';
 import { formatCurrency } from '../utils/formatters';
+import { useTheme } from '../context/ThemeContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const VALID_STATUSES = ['new', 'modified', 'ownerStay'];
@@ -26,17 +27,21 @@ if (typeof global.self === 'undefined') {
   global.self = global;
 }
 
-const MetricCard = ({ icon, label, value, color = theme.colors.primary, large = false }) => (
-  <View style={styles.metricCard}>
-    <View style={[styles.metricIconContainer, { backgroundColor: `${color}15` }]}>
-      <Ionicons name={icon} size={18} color={color} />
+const MetricCard = ({ icon, label, value, color = defaultTheme.colors.primary, large = false }) => {
+  const { theme } = useTheme();
+  
+  return (
+    <View style={[styles.metricCard, { backgroundColor: theme.surface, borderColor: theme.borderColor }]}>
+      <View style={[styles.metricIconContainer, { backgroundColor: `${color}15` }]}>
+        <Ionicons name={icon} size={18} color={color} />
+      </View>
+      <View style={styles.metricContent}>
+        <Text style={[styles.metricLabel, { color: theme.text.secondary }]}>{label}</Text>
+        <Text style={[styles.metricValue, large && styles.largeMetricValue, { color: theme.text.primary }]}>{value}</Text>
+      </View>
     </View>
-    <View style={styles.metricContent}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={[styles.metricValue, large && styles.largeMetricValue]}>{value}</Text>
-    </View>
-  </View>
-);
+  );
+};
 
 const ListingDetailScreen = ({ route, navigation }) => {
   const { property, totalRevenue: passedTotalRevenue } = route.params;
@@ -44,6 +49,7 @@ const ListingDetailScreen = ({ route, navigation }) => {
   const [chartData, setChartData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [propertyRevenue, setPropertyRevenue] = useState(passedTotalRevenue || 0);
+  const { theme } = useTheme();
 
   useEffect(() => {
     navigation.setOptions({
@@ -182,22 +188,22 @@ const ListingDetailScreen = ({ route, navigation }) => {
 
   if (loading && !refreshing) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
       </View>
     );
   }
 
   return (
     <ScrollView 
-      style={styles.container}
+      style={[styles.container, { backgroundColor: theme.background }]}
       contentContainerStyle={styles.scrollContent}
       refreshControl={
         <RefreshControl 
           refreshing={refreshing} 
           onRefresh={onRefresh}
-          tintColor={theme.colors.primary}
-          colors={[theme.colors.primary]}
+          tintColor={theme.primary}
+          colors={[theme.primary]}
         />
       }
       showsVerticalScrollIndicator={false}
@@ -233,8 +239,8 @@ const ListingDetailScreen = ({ route, navigation }) => {
         </View>
 
         {/* Chart Section */}
-        <View style={styles.chartSection}>
-          <Text style={styles.sectionTitle}>Revenue Analysis</Text>
+        <View style={[styles.chartSection, { backgroundColor: theme.surface }]}>
+          <Text style={[styles.sectionTitle, { color: theme.text.primary }]}>Revenue Analysis</Text>
           <RevenueChart data={chartData} loading={loading} />
         </View>
       </View>
@@ -245,7 +251,7 @@ const ListingDetailScreen = ({ route, navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background,
+    backgroundColor: defaultTheme.colors.background,
   },
   scrollContent: {
     flexGrow: 1,
@@ -296,7 +302,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.surface,
+    backgroundColor: defaultTheme.colors.surface,
     borderRadius: 10,
     padding: 12,
     paddingVertical: 10,
@@ -321,20 +327,20 @@ const styles = StyleSheet.create({
   },
   metricLabel: {
     fontSize: 12,
-    color: theme.colors.text.secondary,
+    color: defaultTheme.colors.text.secondary,
     marginBottom: 2,
   },
   metricValue: {
     fontSize: 16,
     fontWeight: '600',
-    color: theme.colors.text.primary,
+    color: defaultTheme.colors.text.primary,
   },
   largeMetricValue: {
     fontSize: 18,
-    color: theme.colors.primary,
+    color: defaultTheme.colors.primary,
   },
   chartSection: {
-    backgroundColor: theme.colors.surface,
+    backgroundColor: defaultTheme.colors.surface,
     borderRadius: 12,
     padding: 16,
     marginBottom: 20,
@@ -344,7 +350,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: theme.colors.text.primary,
+    color: defaultTheme.colors.text.primary,
     marginBottom: 12,
   },
   loadingContainer: {

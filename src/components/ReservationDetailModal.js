@@ -11,7 +11,7 @@ import {
   Image,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { format } from 'date-fns';
+import { format, isValid } from 'date-fns';
 import { theme } from '../theme';
 
 // Channel colors
@@ -21,13 +21,37 @@ const CHANNEL_COLORS = {
   default: '#D4A017'   // Darker matte gold for everything else
 };
 
+// Safe date formatting function
+const safeFormatDate = (dateValue) => {
+  try {
+    // Handle different date formats
+    let date;
+    
+    if (!dateValue) return 'N/A';
+    
+    if (dateValue instanceof Date) {
+      date = dateValue;
+    } else if (typeof dateValue === 'string') {
+      date = new Date(dateValue);
+    } else {
+      return 'N/A';
+    }
+    
+    // Check if date is valid before formatting
+    if (!isValid(date)) {
+      console.warn(`Invalid date detected: ${dateValue}`);
+      return 'N/A';
+    }
+    
+    return format(date, 'EEE, MMM d, yyyy');
+  } catch (error) {
+    console.error(`Error formatting date: ${error.message}`, dateValue);
+    return 'N/A';
+  }
+};
+
 const ReservationDetailModal = ({ visible, onClose, reservation }) => {
   if (!reservation) return null;
-
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return format(date, 'EEE, MMM d, yyyy');
-  };
 
   const formatCurrency = (amount) => {
     // Handle string values
@@ -58,6 +82,17 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
     return 0;
   };
 
+  // Get the appropriate channel fee checking all possible sources
+  const getChannelFee = () => {
+    return parseNumber(reservation.channelFee || 0);
+  };
+
+  // Log channel fee data for debugging - moved after parseNumber is defined
+  console.log('CHANNEL FEE DEBUG:', {
+    rawChannelFee: reservation.channelFee,
+    parsedValue: parseNumber(reservation.channelFee)
+  });
+
   // Calculate the base rate using a comprehensive formula
   const calculateBaseRate = () => {
     const finData = reservation.financialData || {};
@@ -76,13 +111,59 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
     return baseRate;
   };
 
+  // Safely calculate the nights count between arrival and departure dates
   const calculateNightsCount = () => {
-    if (!reservation.arrivalDate || !reservation.departureDate) return 0;
-    const arrival = new Date(reservation.arrivalDate);
-    const departure = new Date(reservation.departureDate);
-    const diffTime = Math.abs(departure - arrival);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
+    try {
+      if (!reservation.arrivalDate || !reservation.departureDate) {
+        // If we have a nights property, use that
+        if (reservation.nights) {
+          const nightsNum = parseInt(reservation.nights, 10);
+          if (!isNaN(nightsNum)) return nightsNum;
+        }
+        return 0;
+      }
+      
+      let arrival, departure;
+      
+      // Handle case where dates are already Date objects
+      if (reservation.arrivalDate instanceof Date) {
+        arrival = reservation.arrivalDate;
+      } else {
+        arrival = new Date(reservation.arrivalDate);
+      }
+      
+      if (reservation.departureDate instanceof Date) {
+        departure = reservation.departureDate;
+      } else {
+        departure = new Date(reservation.departureDate);
+      }
+      
+      // Verify dates are valid
+      if (!isValid(arrival) || !isValid(departure)) {
+        console.warn('Invalid arrival/departure dates detected');
+        
+        // Try to use nights property if available
+        if (reservation.nights) {
+          const nightsNum = parseInt(reservation.nights, 10);
+          if (!isNaN(nightsNum)) return nightsNum;
+        }
+        
+        return 0;
+      }
+      
+      const diffTime = Math.abs(departure - arrival);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return diffDays;
+    } catch (error) {
+      console.error(`Error calculating nights: ${error.message}`);
+      
+      if (reservation.nights) {
+        const nightsNum = parseInt(reservation.nights, 10);
+        if (!isNaN(nightsNum)) return nightsNum;
+      }
+      
+      return 0;
+    }
   };
 
   // Get channel information
@@ -119,24 +200,60 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
     return { type: channelType, displayName, color: CHANNEL_COLORS[channelType] };
   };
 
+  // Check if payout data is incomplete
+  const hasIncompleteFinancialData = () => {
+    const payout = parseNumber(reservation.hostPayout || reservation.airbnbExpectedPayoutAmount || reservation.ownerPayout);
+    return !payout || payout <= 0;
+  };
+
   const channelInfo = getChannelInfo();
   const nightsCount = calculateNightsCount();
-  const guestCountText = `${reservation.adultCount} adult${reservation.adultCount !== 1 ? 's' : ''}${
+  const incompleteFinancialData = hasIncompleteFinancialData();
+  const guestCountText = `${reservation.adultCount || 1} adult${(reservation.adultCount || 1) !== 1 ? 's' : ''}${
     reservation.childrenCount ? `, ${reservation.childrenCount} child${reservation.childrenCount !== 1 ? 'ren' : ''}` : ''}${
     reservation.infantCount ? `, ${reservation.infantCount} infant${reservation.infantCount !== 1 ? 's' : ''}` : ''}`;
   
-  // Format date range for the header (e.g., "May 8 – 15 (7 nights)")
+  // Format date range for the header with improved error handling
   const formatDateRange = () => {
-    if (!reservation.arrivalDate || !reservation.departureDate) return '';
-    const arrival = new Date(reservation.arrivalDate);
-    const departure = new Date(reservation.departureDate);
-    
-    // If same month, show "Month StartDay – EndDay (X nights)"
-    if (arrival.getMonth() === departure.getMonth()) {
-      return `${format(arrival, 'MMM d')} – ${format(departure, 'd')} (${nightsCount} nights)`;
+    try {
+      if (!reservation.arrivalDate || !reservation.departureDate) {
+        if (nightsCount > 0) {
+          return `Reservation (${nightsCount} nights)`;
+        }
+        return 'Upcoming Reservation';
+      }
+      
+      let arrival, departure;
+      
+      // Handle case where dates are already Date objects
+      if (reservation.arrivalDate instanceof Date) {
+        arrival = reservation.arrivalDate;
+      } else {
+        arrival = new Date(reservation.arrivalDate);
+      }
+      
+      if (reservation.departureDate instanceof Date) {
+        departure = reservation.departureDate;
+      } else {
+        departure = new Date(reservation.departureDate);
+      }
+      
+      // Check if dates are valid
+      if (!isValid(arrival) || !isValid(departure)) {
+        console.warn('Invalid arrival/departure dates in formatDateRange');
+        return `Reservation (${nightsCount} nights)`;
+      }
+      
+      // If same month, show "Month StartDay – EndDay (X nights)"
+      if (arrival.getMonth() === departure.getMonth()) {
+        return `${format(arrival, 'MMM d')} – ${format(departure, 'd')} (${nightsCount} nights)`;
+      }
+      // If different months, show "StartMonth StartDay – EndMonth EndDay (X nights)"
+      return `${format(arrival, 'MMM d')} – ${format(departure, 'MMM d')} (${nightsCount} nights)`;
+    } catch (error) {
+      console.error(`Error in formatDateRange: ${error.message}`);
+      return `Reservation (${nightsCount} nights)`;
     }
-    // If different months, show "StartMonth StartDay – EndMonth EndDay (X nights)"
-    return `${format(arrival, 'MMM d')} – ${format(departure, 'MMM d')} (${nightsCount} nights)`;
   };
 
   const dateRange = formatDateRange();
@@ -219,31 +336,31 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
             {/* Check-in Section */}
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Check-in</Text>
-              <Text style={styles.sectionValue}>{formatDate(reservation.arrivalDate)}</Text>
+              <Text style={styles.sectionValue}>{safeFormatDate(reservation.arrivalDate)}</Text>
             </View>
             
             {/* Checkout Section */}
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Checkout</Text>
-              <Text style={styles.sectionValue}>{formatDate(reservation.departureDate)}</Text>
+              <Text style={styles.sectionValue}>{safeFormatDate(reservation.departureDate)}</Text>
             </View>
             
             {/* Booking date Section */}
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Booking date</Text>
-              <Text style={styles.sectionValue}>{formatDate(reservation.bookingDate)}</Text>
+              <Text style={styles.sectionValue}>{safeFormatDate(reservation.bookingDate)}</Text>
             </View>
             
             {/* Confirmation code Section */}
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Confirmation code</Text>
-              <Text style={styles.sectionValue}>{reservation.confirmationCode}</Text>
+              <Text style={styles.sectionValue}>{reservation.confirmationCode || 'N/A'}</Text>
             </View>
             
             {/* Cancellation policy Section */}
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Cancellation policy</Text>
-              <Text style={styles.sectionValue}>{reservation.cancellationPolicy}</Text>
+              <Text style={styles.sectionValue}>{reservation.cancellationPolicy || 'Standard'}</Text>
             </View>
             
             {/* Host payout Section */}
@@ -309,7 +426,7 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
                 <View style={styles.financialRow}>
                   <Text style={styles.financialText}>Channel Fee</Text>
                   <Text style={styles.financialValue}>
-                    {formatCurrency(parseNumber(reservation.channelFee))}
+                    {formatCurrency(getChannelFee())}
                   </Text>
                 </View>
                 
@@ -325,7 +442,7 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
                   <Text style={[styles.financialValue, styles.boldValue]}>
                     {formatCurrency(
                       parseNumber(reservation.processingFee || reservation.paymentProcessingFee || 0) +
-                      parseNumber(reservation.channelFee || 0) +
+                      getChannelFee() +
                       parseNumber(reservation.managementFee || 0)
                     )}
                   </Text>
@@ -339,7 +456,9 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
                 <View style={styles.totalRow}>
                   <Text style={styles.totalText}>Owner Payout</Text>
                   <Text style={[styles.financialValue, styles.boldValue]}>
-                    {formatCurrency(parseNumber(reservation.hostPayout || reservation.airbnbExpectedPayoutAmount || reservation.ownerPayout))}
+                    {incompleteFinancialData ? 
+                      "Pending" : 
+                      formatCurrency(parseNumber(reservation.hostPayout || reservation.airbnbExpectedPayoutAmount || reservation.ownerPayout))}
                   </Text>
                 </View>
               </View>

@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Camera, Paintbrush, Package, Users, Star, Sparkles, TrendingUp, DollarSign, Zap } from 'lucide-react-native';
-import { theme } from '../theme';
+import { theme as defaultTheme } from '../theme';
 import { requestRevenueCalculation } from '../services/api';
 
 import PropertyPicker from '../components/PropertyPicker';
@@ -19,12 +19,14 @@ import GradeIndicator from '../components/GradeIndicator';
 import ReferralSection from '../components/ReferralSection';
 import { useAuth } from '../context/AuthContext';
 import { useConsultation } from '../context/ConsultationContext';
+import { useTheme } from '../context/ThemeContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const EarnMoreScreen = () => {
   const { message, sendMessage, setMessage, isLoading, complete } = useConsultation();
   const { listings } = useAuth();
+  const { theme, isDarkMode } = useTheme();
   const [selectedProperty, setSelectedProperty] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -90,7 +92,7 @@ const EarnMoreScreen = () => {
   ];
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView style={[styles.container, { backgroundColor: theme.background }]} showsVerticalScrollIndicator={false}>
       <View style={styles.pickerWrapper}>
         <PropertyPicker
           selectedProperty={selectedProperty}
@@ -123,10 +125,10 @@ const EarnMoreScreen = () => {
         <View style={styles.recommendationsSection}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleContainer}>
-              <Icon name="flash" size={16} color={theme.colors.primary} />
-              <Text style={styles.sectionTitle}>AI Recommendations</Text>
-              <View style={styles.sectionBadge}>
-                <Text style={styles.sectionBadgeText}>5 insights</Text>
+              <Icon name="flash" size={16} color={theme.primary} />
+              <Text style={[styles.sectionTitle, { color: theme.text.primary }]}>AI Recommendations</Text>
+              <View style={[styles.sectionBadge, { backgroundColor: `${theme.primary}12` }]}>
+                <Text style={[styles.sectionBadgeText, { color: theme.primary }]}>5 insights</Text>
               </View>
             </View>
           </View>
@@ -137,22 +139,25 @@ const EarnMoreScreen = () => {
             ))}
           </View>
         </View>
-        <View style={styles.messageContainer}>
+        <View style={[styles.messageContainer, { 
+          backgroundColor: theme.surface,
+          borderColor: theme.borderColor
+        }]}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { color: theme.text.primary }]}
             onChangeText={setMessage}
             value={message}
-            placeholderTextColor={theme.colors.text.primary}
+            placeholderTextColor={theme.text.secondary}
             placeholder="Write your message here..."
             multiline
           />
         </View>
 
-        {complete && <Text style={styles.completeText}>Message sent successfully</Text>}
+        {complete && <Text style={[styles.completeText, { color: theme.success }]}>Message sent successfully</Text>}
 
         <View style={styles.actionSection}>
           <TouchableOpacity
-            style={styles.consultButton}
+            style={[styles.consultButton, { backgroundColor: theme.primary }]}
             activeOpacity={0.8}
             onPress={() => sendMessage()}>
             <View style={styles.consultButtonContent}>
@@ -173,7 +178,6 @@ const EarnMoreScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background,
   },
   pickerWrapper: {
     paddingTop: Platform.OS === 'ios' ? 48 : 24,
@@ -205,11 +209,9 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: theme.colors.text.primary,
     letterSpacing: -0.2,
   },
   sectionBadge: {
-    backgroundColor: `${theme.colors.primary}12`,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -218,7 +220,6 @@ const styles = StyleSheet.create({
   sectionBadgeText: {
     fontSize: 12,
     fontWeight: '500',
-    color: theme.colors.primary,
     lineHeight: 14,
   },
   gradesContainer: {
@@ -231,12 +232,11 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
   },
   consultButton: {
-    backgroundColor: theme.colors.primary,
     borderRadius: 12,
     width: '100%',
     ...Platform.select({
       ios: {
-        shadowColor: theme.colors.primary,
+        shadowColor: defaultTheme.colors.primary,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.2,
         shadowRadius: 8,
@@ -263,19 +263,15 @@ const styles = StyleSheet.create({
     height: 34,
   },
   messageContainer: {
-    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: theme.colors.card.border,
   },
   input: {
-    color: theme.colors.text.primary,
     height: 70,
     margin: 12,
   },
   completeText: {
     marginTop: 10,
-    color: theme.colors.success,
     fontSize: 14,
   },
 });

@@ -35,7 +35,7 @@ const BOOKING_COLOR = '#FF385C';
 
 const CalendarScreen = ({ navigation }) => {
   const { listings } = useAuth();
-  const [selectedProperty, setSelectedProperty] = useState('1');
+  const [selectedProperty, setSelectedProperty] = useState(null);
   const [allMonths, setAllMonths] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -72,6 +72,13 @@ const CalendarScreen = ({ navigation }) => {
     });
   }, [listings]);
 
+  // Set initial property when listings load
+  useEffect(() => {
+    if (formattedListings.length > 0 && !selectedProperty) {
+      setSelectedProperty(formattedListings[0].id);
+    }
+  }, [formattedListings, selectedProperty]);
+
   // Scroll to current month when months load or loading completes
   useEffect(() => {
     if (!isLoading && allMonths.length > 0 && scrollViewRef.current && currentMonthIndex > 0) {
@@ -88,14 +95,9 @@ const CalendarScreen = ({ navigation }) => {
   }, [isLoading, allMonths, currentMonthIndex]);
 
   useEffect(() => {
-    // If we have real listings from AuthContext, use those
-    if (formattedListings.length > 0 && !selectedProperty) {
-      setSelectedProperty(formattedListings[0].id);
-    }
-    
     // Generate calendar months
     generateCalendarMonths();
-  }, [formattedListings]);
+  }, []);
 
   // Effect to fetch reservations when the selected property changes
   useEffect(() => {
@@ -361,7 +363,7 @@ const CalendarScreen = ({ navigation }) => {
               channelReservationId: res.channelReservationId || '',
               totalPrice: res.totalPrice || (res.financialData ? res.financialData.totalPaid : 0) || 0,
               // Additional financial fields
-              hostChannelFee: (res.financialData ? res.financialData.hostChannelFee : 0) || 0,
+              hostChannelFee: (res.financialData ? res.financialData.channelFee : 0) || res.channelFee || 0,
               pmCommission: (res.financialData ? res.financialData.managementFeeAirbnb : 0) || 0,
               // Store the raw financialData object if available
               financialData: res.financialData || null,
@@ -534,9 +536,6 @@ const CalendarScreen = ({ navigation }) => {
   const handleBookingClick = (booking) => {
     if (!booking) return;
 
-    // Debug the booking payout values
-    // Remove debugging console logs
-    
     // Create a reservation object mapping the API response to our modal fields
     const reservation = {
       id: booking.id,
@@ -573,14 +572,14 @@ const CalendarScreen = ({ navigation }) => {
       // Financial data for Guest Paid section
       nightlyRate: booking.baseRate ? booking.baseRate / (booking.nights || 1) : 0,
       cleaningFee: booking.cleaningFee || 0,
-      serviceFee: booking.serviceFee || booking.hostChannelFee || 0,
+      serviceFee: booking.serviceFee || booking.channelFee || 0,
       occupancyTaxes: booking.occupancyTaxes || booking.tourismTax || booking.cityTax || 0,
       guestTotal: booking.guestTotal || booking.totalPrice || 0,
       
       // Financial data for Host Payout section
       baseRate: parseFloat(booking.baseRate) || 0,
       processingFee: booking.financialData?.PaymentProcessing ? parseFloat(booking.financialData.PaymentProcessing) : 0,
-      channelFee: booking.hostChannelFee ? parseFloat(booking.hostChannelFee) : 0,
+      channelFee: parseFloat(booking.channelFee || 0),
       managementFee: booking.pmCommission ? parseFloat(booking.pmCommission) : 0,
       
       // Final payout
@@ -598,11 +597,6 @@ const CalendarScreen = ({ navigation }) => {
     
     // Set the selected reservation and show the modal
     setSelectedReservation(reservation);
-    
-    // Log the formatted reservation object that will be passed to the modal
-    console.log("FORMATTED RESERVATION OBJECT (Passed to modal):");
-    console.log(JSON.stringify(reservation, null, 2));
-    console.log("==============================================");
     
     setModalVisible(true);
   };
@@ -748,13 +742,6 @@ const CalendarScreen = ({ navigation }) => {
             />
           </View>
         </View>
-        
-        <TouchableOpacity 
-          style={styles.settingsButton}
-          onPress={() => navigation.navigate('ReservationsList')}
-        >
-          <Icon name="list-outline" size={24} color="#000" />
-        </TouchableOpacity>
       </View>
       
       {isLoading ? (
@@ -819,10 +806,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  settingsButton: {
-    padding: 8,
-    marginLeft: 10,
   },
   scrollView: {
     flex: 1,

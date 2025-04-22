@@ -18,8 +18,10 @@ import {
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { theme } from './src/theme';
+import { theme as defaultTheme } from './src/theme';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { ThemeProvider, useTheme } from './src/context/ThemeContext';
+import {ConsultationProvider} from './src/context/ConsultationContext';
 
 // Suppress warnings
 LogBox.ignoreLogs([
@@ -30,42 +32,6 @@ LogBox.ignoreLogs([
   'NativeAnimatedModule',
 ]);
 
-// Disable all animations globally to stabilize app
-if (Platform.OS === 'ios') {
-  // Override the timing and spring functions to disable animations
-  const originalTiming = Animated.timing;
-  Animated.timing = (value, config) => {
-    return {
-      start: (callback) => {
-        value.setValue(config.toValue);
-        callback && callback({finished: true});
-      },
-      stop: () => {}
-    };
-  };
-
-  const originalSpring = Animated.spring;
-  Animated.spring = (value, config) => {
-    return {
-      start: (callback) => {
-        value.setValue(config.toValue);
-        callback && callback({finished: true});
-      },
-      stop: () => {}
-    };
-  };
-
-  const originalLoop = Animated.loop;
-  Animated.loop = (animation) => {
-    return {
-      start: (callback) => {
-        callback && callback({finished: true});
-      },
-      stop: () => {}
-    };
-  };
-}
-
 // Import screens
 import AuthScreen from './src/screens/AuthScreen';
 import HomeScreen from './src/screens/HomeScreen';
@@ -75,7 +41,6 @@ import ReservationsScreen from './src/screens/ReservationsScreen';
 import SupportScreen from './src/screens/SupportScreen';
 import EarnMoreScreen from './src/screens/EarnMoreScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
-import {ConsultationProvider} from './src/context/ConsultationContext';
 
 // No need for separate SignOutScreen - we'll add a button to HomeScreen instead
 
@@ -83,16 +48,19 @@ const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 Ionicons.loadFont()
-  .then(() => {/* Font loaded */})
   .catch(error => console.error('Error loading Ionicons font', error));
 
-const MainTabs = () => (
-  <View style={{flex: 1, backgroundColor: '#000000'}}>
+const MainTabs = () => {
+  const { theme, isDarkMode } = useTheme();
+  
+  return (
+  <View style={{flex: 1, backgroundColor: theme.background}}>
     <Tab.Navigator
+      initialRouteName="Calendar"
       screenOptions={{
         tabBarStyle: {
-          backgroundColor: '#000000',
-          borderTopColor: 'rgba(182, 148, 76, 0.5)',
+          backgroundColor: theme.tabBar.background,
+          borderTopColor: theme.borderColor,
           borderTopWidth: 1,
           paddingBottom: 12,
           paddingTop: 8,
@@ -102,30 +70,30 @@ const MainTabs = () => (
           shadowOpacity: 0,
           opacity: 1,
           ...(Platform.OS === 'ios' ? {
-            backgroundColor: '#000000',
-            borderTopColor: 'rgba(182, 148, 76, 0.5)',
+            backgroundColor: theme.tabBar.background,
+            borderTopColor: theme.borderColor,
             borderTopWidth: 1,
-            shadowColor: 'rgba(182, 148, 76, 0.25)',
+            shadowColor: theme.borderColor,
             shadowOffset: { height: -1, width: 0 },
             shadowOpacity: 0.3,
             shadowRadius: 0,
           } : {
             borderTopWidth: 1,
-            borderTopColor: 'rgba(182, 148, 76, 0.5)',
+            borderTopColor: theme.borderColor,
           }),
         },
         tabBarItemStyle: {
-          backgroundColor: '#000000',
+          backgroundColor: theme.tabBar.background,
         },
-        tabBarActiveTintColor: 'rgba(182, 148, 76, 0.7)',
-        tabBarInactiveTintColor: 'rgba(255, 255, 255, 0.4)',
+        tabBarActiveTintColor: theme.tabBar.active,
+        tabBarInactiveTintColor: theme.tabBar.inactive,
         headerStyle: {
-          backgroundColor: theme.colors.surface,
+          backgroundColor: theme.surface,
         },
-        headerTintColor: theme.colors.text.primary,
-        headerTitleStyle: theme.typography.h2,
+        headerTintColor: theme.text.primary,
+        headerTitleStyle: defaultTheme.typography.h2,
         contentStyle: {
-          backgroundColor: theme.colors.background,
+          backgroundColor: theme.background,
         },
         headerShown: false,
         headerTitleAlign: 'center',
@@ -160,11 +128,20 @@ const MainTabs = () => (
         }}
       />
       <Tab.Screen
-        name="Reservations"
+        name="Calendar"
         component={CalendarScreen}
         options={{
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="calendar" size={24} color={color} style={{fontWeight: '300'}} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Reservations"
+        component={ReservationsScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="today" size={24} color={color} style={{fontWeight: '300'}} />
           ),
         }}
       />
@@ -179,23 +156,16 @@ const MainTabs = () => (
       />
     </Tab.Navigator>
   </View>
-);
+  );
+};
 
 const Navigation = () => {
-  const { userData, isLoading } = useAuth();
+  const { userData, isLoading: authLoading } = useAuth();
+  const { theme, isLoading: themeLoading } = useTheme();
   const [isReady, setIsReady] = useState(false);
 
-  // Disable animations
+  // Update this effect to not disable animations
   React.useEffect(() => {
-    const disableAnimations = async () => {
-      if (Platform.OS === 'ios') {
-        UIManager.setLayoutAnimationEnabledExperimental && 
-        UIManager.setLayoutAnimationEnabledExperimental(false);
-      }
-    };
-    
-    disableAnimations();
-    
     // Mark as ready after a short delay to ensure all initialization is complete
     setTimeout(() => {
       setIsReady(true);
@@ -203,20 +173,20 @@ const Navigation = () => {
   }, []);
 
   // Don't render anything until we're ready
-  if (!isReady) {
+  if (!isReady || themeLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
       </View>
     );
   }
 
   // Show loading state if auth is loading
-  if (isLoading) {
+  if (authLoading) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
         <Image source={require('./src/assets/logo.png')} style={styles.logo} />
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <ActivityIndicator size="large" color={theme.primary} />
       </View>
     );
   }
@@ -226,7 +196,7 @@ const Navigation = () => {
       screenOptions={{
         headerShown: false,
         contentStyle: {
-          backgroundColor: theme.colors.background,
+          backgroundColor: theme.background,
         },
         animation: 'none',
         animationEnabled: false,
@@ -246,9 +216,9 @@ const Navigation = () => {
             options={{
               headerShown: true,
               headerStyle: {
-                backgroundColor: theme.colors.surface,
+                backgroundColor: theme.surface,
               },
-              headerTintColor: theme.colors.primary,
+              headerTintColor: theme.primary,
               headerBackTitleVisible: true,
               headerBackTitle: "Properties",
               headerTitle: "",
@@ -271,9 +241,9 @@ const Navigation = () => {
             options={{
               headerShown: true,
               headerStyle: {
-                backgroundColor: theme.colors.surface,
+                backgroundColor: theme.surface,
               },
-              headerTintColor: theme.colors.text.primary,
+              headerTintColor: theme.text.primary,
               headerTitle: "Reservations List",
               animation: 'none',
               animationEnabled: false,
@@ -285,10 +255,10 @@ const Navigation = () => {
             options={{
               headerShown: true,
               headerStyle: {
-                backgroundColor: theme.colors.surface,
+                backgroundColor: theme.surface,
               },
-              headerTintColor: theme.colors.text.primary,
-              headerTitleStyle: theme.typography.h2,
+              headerTintColor: theme.text.primary,
+              headerTitleStyle: defaultTheme.typography.h2,
               headerBackTitleVisible: false,
               headerTitle: "Reservation Details",
               animation: 'none',
@@ -302,39 +272,51 @@ const Navigation = () => {
 };
 
 const App = () => {
-  const MyTheme = {
-    ...DefaultTheme,
-    colors: {
-      ...DefaultTheme.colors,
-      background: '#000000',
-      card: '#000000',
-      border: theme.colors.primary,
-      text: '#FFFFFF',
-    },
-  };
-
-  return (
-    <AuthProvider>
-      <ConsultationProvider>
-      <SafeAreaProvider style={{backgroundColor: '#000000'}}>
-        <View style={{flex: 1, backgroundColor: '#000000'}}>
+  const AppWrapper = () => {
+    const { theme, isDarkMode } = useTheme();
+    
+    const MyTheme = {
+      ...DefaultTheme,
+      colors: {
+        ...DefaultTheme.colors,
+        background: theme.background,
+        card: theme.card,
+        border: theme.borderColor,
+        text: theme.text.primary,
+      },
+    };
+    
+    return (
+      <SafeAreaProvider style={{backgroundColor: theme.background}}>
+        <View style={{flex: 1, backgroundColor: theme.background}}>
           <NavigationContainer theme={MyTheme}>
-            <StatusBar barStyle="light-content" backgroundColor="#000000" />
-            <SafeAreaView style={styles.container} edges={['top']}>
+            <StatusBar 
+              barStyle={isDarkMode ? "light-content" : "dark-content"} 
+              backgroundColor={theme.background} 
+            />
+            <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
               <Navigation />
             </SafeAreaView>
           </NavigationContainer>
         </View>
       </SafeAreaProvider>
-      </ConsultationProvider>
-    </AuthProvider>
+    );
+  };
+
+  return (
+    <ThemeProvider>
+      <AuthProvider>
+        <ConsultationProvider>
+          <AppWrapper />
+        </ConsultationProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
   },
   loadingContainer: {
     height: 300,
@@ -343,7 +325,7 @@ const styles = StyleSheet.create({
   },
   logo: {
     alignSelf: 'center',
-    marginBottom: theme.spacing.xl * 2,
+    marginBottom: defaultTheme.spacing.xl * 2,
     width: 300,
     height: 300,
     resizeMode: 'contain',

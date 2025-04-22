@@ -10,7 +10,8 @@ import {
   Dimensions
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { theme } from '../theme';
+import { theme as defaultTheme } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 
 // Define gold color matching the app theme
 const GOLD = {
@@ -38,36 +39,37 @@ const formatCurrency = (amount) => {
 
 // Simple card for dashboard view
 const UpgradeCard = ({ upgrade, onMoreInfo }) => {
+  const { theme } = useTheme();
   const { title, description, icon, cost, roiPercentage } = upgrade;
   const annualRevenue = calculateAnnualRevenue(cost, roiPercentage);
   
   return (
-    <View style={styles.upgradeCard}>
+    <View style={[styles.upgradeCard, { backgroundColor: '#FFFFFF', borderColor: '#E5E0D5' }]}>
       <View style={styles.cardContent}>
         <View style={styles.cardHeader}>
           <View style={styles.iconContainer}>
-            <Ionicons name={icon} size={18} color={GOLD.primary} />
+            <Ionicons name={icon} size={18} color={theme.primary} />
           </View>
-          <Text style={styles.cardTitle}>{title}</Text>
+          <Text style={[styles.cardTitle, { color: '#333333' }]}>{title}</Text>
         </View>
         
         <View style={styles.descriptionContainer}>
-          <Text style={styles.cardDescription} numberOfLines={2}>
+          <Text style={[styles.cardDescription, { color: '#666666' }]} numberOfLines={2}>
             {description}
           </Text>
-          <View style={styles.roiContainer}>
-            <Text style={styles.roiText}>+{roiPercentage}%</Text>
-            <Text style={styles.roiLabel}>ROI</Text>
+          <View style={[styles.roiContainer, { backgroundColor: `${theme.primary}10` }]}>
+            <Text style={[styles.roiText, { color: theme.primary }]}>+{roiPercentage}%</Text>
+            <Text style={[styles.roiLabel, { color: theme.primary }]}>ROI</Text>
           </View>
         </View>
       </View>
       
       <TouchableOpacity 
-        style={styles.moreInfoButton}
+        style={[styles.moreInfoButton, { borderTopColor: '#E5E0D5' }]}
         activeOpacity={0.8}
         onPress={onMoreInfo}
       >
-        <Text style={styles.moreInfoText}>More Info</Text>
+        <Text style={[styles.moreInfoText, { color: theme.primary }]}>More Info</Text>
       </TouchableOpacity>
     </View>
   );
@@ -75,42 +77,43 @@ const UpgradeCard = ({ upgrade, onMoreInfo }) => {
 
 // Detailed card for modal view
 const DetailedUpgradeCard = ({ upgrade }) => {
+  const { theme } = useTheme();
   const { title, description, icon, cost, roiPercentage } = upgrade;
   const annualRevenue = calculateAnnualRevenue(cost, roiPercentage);
   
   return (
-    <View style={styles.detailedCard}>
+    <View style={[styles.detailedCard, { backgroundColor: theme.surface, borderColor: theme.borderColor }]}>
       <View style={styles.detailedCardHeader}>
         <View style={styles.detailedIconContainer}>
-          <Ionicons name={icon} size={28} color={GOLD.primary} />
+          <Ionicons name={icon} size={28} color={theme.primary} />
         </View>
         <View style={styles.detailedTitleContainer}>
-          <Text style={styles.detailedTitle}>{title}</Text>
+          <Text style={[styles.detailedTitle, { color: theme.text.primary }]}>{title}</Text>
         </View>
       </View>
       
-      <Text style={styles.detailedDescription}>{description}</Text>
+      <Text style={[styles.detailedDescription, { color: theme.text.secondary }]}>{description}</Text>
       
-      <View style={styles.cardDivider} />
+      <View style={[styles.cardDivider, { backgroundColor: theme.borderColor }]} />
       
       <View style={styles.financialDetails}>
         <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Cost</Text>
-          <Text style={styles.detailValue}>{formatCurrency(cost)}</Text>
+          <Text style={[styles.detailLabel, { color: theme.text.secondary }]}>Cost</Text>
+          <Text style={[styles.detailValue, { color: theme.text.primary }]}>{formatCurrency(cost)}</Text>
         </View>
         
         <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Annual Revenue</Text>
+          <Text style={[styles.detailLabel, { color: theme.text.secondary }]}>Annual Revenue</Text>
           <Text style={[styles.detailValue, styles.positiveValue]}>{formatCurrency(annualRevenue)}</Text>
         </View>
         
         <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>ROI</Text>
+          <Text style={[styles.detailLabel, { color: theme.text.secondary }]}>ROI</Text>
           <Text style={[styles.detailValue, styles.positiveValue]}>{roiPercentage}%</Text>
         </View>
       </View>
       
-      <TouchableOpacity style={styles.learnMoreButton}>
+      <TouchableOpacity style={[styles.learnMoreButton, { backgroundColor: theme.primary }]}>
         <Text style={styles.learnMoreText}>Learn More</Text>
       </TouchableOpacity>
     </View>
@@ -120,6 +123,7 @@ const DetailedUpgradeCard = ({ upgrade }) => {
 const PropertyUpgrades = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedUpgrade, setSelectedUpgrade] = useState(null);
+  const { theme } = useTheme();
   
   // Sample upgrades data
   const upgrades = [
@@ -176,14 +180,14 @@ const PropertyUpgrades = () => {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
         <View style={styles.titleContainer}>
-          <Ionicons name="flash-outline" size={18} color={GOLD.primary} />
-          <Text style={styles.title}>Property Upgrades</Text>
+          <Ionicons name="flash-outline" size={18} color={theme.primary} />
+          <Text style={[styles.title, { color: theme.text.primary }]}>Property Upgrades</Text>
         </View>
         <TouchableOpacity onPress={openAllUpgradesModal} style={styles.viewAllButton}>
-          <Text style={styles.viewAllText}>View All</Text>
+          <Text style={[styles.viewAllText, { color: theme.primary }]}>View All</Text>
         </TouchableOpacity>
       </View>
       
@@ -209,8 +213,8 @@ const PropertyUpgrades = () => {
         onRequestClose={closeModal}
       >
         <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
+          <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+            <View style={[styles.modalHeader, { backgroundColor: theme.primary }]}>
               <Text style={styles.modalTitle}>
                 {selectedUpgrade ? selectedUpgrade.title : 'Property Upgrades'}
               </Text>
@@ -233,10 +237,10 @@ const PropertyUpgrades = () => {
             </ScrollView>
             
             <TouchableOpacity 
-              style={styles.cancelButton} 
+              style={[styles.cancelButton, { borderTopColor: theme.borderColor }]} 
               onPress={closeModal}
             >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
+              <Text style={[styles.cancelButtonText, { color: theme.text.secondary }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -287,15 +291,20 @@ const styles = StyleSheet.create({
   // Dashboard card styles
   upgradeCard: {
     width: 275,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     marginRight: 12,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: '#E5E0D5',
     flexDirection: 'column',
     justifyContent: 'space-between',
-    height: 140, // Fixed height for consistency
+    height: 140,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
   },
   cardContent: {
     flex: 1,
@@ -319,7 +328,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: '#333333',
   },
   descriptionContainer: {
     flexDirection: 'row',
@@ -329,7 +338,7 @@ const styles = StyleSheet.create({
   cardDescription: {
     flex: 1,
     fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: '#666666',
     lineHeight: 18,
     paddingRight: 10,
   },
@@ -353,11 +362,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   moreInfoButton: {
-    backgroundColor: 'rgba(182, 148, 76, 0.12)',
+    backgroundColor: '#FCFAF5',
     paddingVertical: 11,
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.04)',
+    borderTopColor: '#E5E0D5',
     width: '100%',
   },
   moreInfoText: {

@@ -1,40 +1,46 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { theme } from '../theme';
+import { theme as defaultTheme } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 
-const RevenueCard = ({ title, current, potential, market, marketColor = '#4B5563' }) => (
-  <View style={styles.container}>
-    <View style={styles.header}>
-      <Text style={styles.title}>{title}</Text>
-      <Icon name="cash-outline" size={16} color={theme.colors.text.secondary} />
+const RevenueCard = ({ title, current, potential, market, marketColor = '#4B5563' }) => {
+  const { theme } = useTheme();
+  
+  return (
+    <View style={[styles.container, { 
+      backgroundColor: theme.surface,
+      borderColor: theme.borderColor
+    }]}>
+      <View style={styles.header}>
+        <Text style={[styles.title, { color: theme.text.secondary }]}>{title}</Text>
+        <Icon name="cash-outline" size={16} color={theme.text.secondary} />
+      </View>
+      <View style={styles.valueRow}>
+        <View style={styles.valueItem}>
+          <Text style={[styles.value, { color: theme.text.primary }]}>${current}</Text>
+          <Text style={[styles.label, { color: theme.text.secondary }]}>Current</Text>
+        </View>
+        <View style={[styles.divider, { backgroundColor: theme.borderColor }]} />
+        <View style={styles.valueItem}>
+          <Text style={[styles.value, styles.potentialValue]}>${potential}</Text>
+          <Text style={[styles.label, { color: theme.text.secondary }]}>Potential</Text>
+        </View>
+        <View style={[styles.divider, { backgroundColor: theme.borderColor }]} />
+        <View style={styles.valueItem}>
+          <Text style={[styles.value, { color: marketColor }]}>${market}</Text>
+          <Text style={[styles.label, { color: theme.text.secondary }]}>Market</Text>
+        </View>
+      </View>
     </View>
-    <View style={styles.valueRow}>
-      <View style={styles.valueItem}>
-        <Text style={styles.value}>${current}</Text>
-        <Text style={styles.label}>Current</Text>
-      </View>
-      <View style={styles.divider} />
-      <View style={styles.valueItem}>
-        <Text style={[styles.value, styles.potentialValue]}>${potential}</Text>
-        <Text style={styles.label}>Potential</Text>
-      </View>
-      <View style={styles.divider} />
-      <View style={styles.valueItem}>
-        <Text style={[styles.value, { color: marketColor }]}>${market}</Text>
-        <Text style={styles.label}>Market</Text>
-      </View>
-    </View>
-  </View>
-);
+  );
+};
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     padding: 12,
     borderWidth: 1,
-    borderColor: theme.colors.card.border,
   },
   header: {
     flexDirection: 'row',
@@ -45,7 +51,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 13,
     fontWeight: '600',
-    color: theme.colors.text.secondary,
   },
   valueRow: {
     flexDirection: 'row',
@@ -59,7 +64,6 @@ const styles = StyleSheet.create({
   value: {
     fontSize: 16,
     fontWeight: '700',
-    color: theme.colors.text.primary,
     marginBottom: 2,
   },
   potentialValue: {
@@ -68,12 +72,10 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 11,
-    color: theme.colors.text.secondary,
   },
   divider: {
     width: 1,
     height: 30,
-    backgroundColor: theme.colors.card.border,
     marginHorizontal: 8,
   },
 });

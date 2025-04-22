@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Image } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { theme } from '../theme';
+import { theme as defaultTheme } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 
 const PropertyPicker = ({ 
   selectedProperty,
@@ -12,6 +13,7 @@ const PropertyPicker = ({
   showSelectedImage = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const { theme, isDarkMode } = useTheme();
   
   const selectedPropertyData = properties.find(p => p.id === selectedProperty);
   
@@ -23,7 +25,10 @@ const PropertyPicker = ({
   return (
     <View style={styles.container}>
       <TouchableOpacity 
-        style={styles.button}
+        style={[styles.button, {
+          backgroundColor: isDarkMode ? theme.surface : '#FFFFFF',
+          borderColor: theme.borderColor
+        }]}
         onPress={() => setIsOpen(true)}
         disabled={loading || properties.length === 0}
       >
@@ -35,18 +40,18 @@ const PropertyPicker = ({
           />
         ) : (
           showSelectedImage && (
-            <View style={styles.propertyImagePlaceholder}>
-              <Icon name="home-outline" size={16} color="#666666" />
+            <View style={[styles.propertyImagePlaceholder, { backgroundColor: isDarkMode ? '#333333' : '#F5F5F5' }]}>
+              <Icon name="home-outline" size={16} color={theme.text.secondary} />
             </View>
           )
         )}
-        <Text style={styles.buttonText} numberOfLines={1} ellipsizeMode="tail">
+        <Text style={[styles.buttonText, { color: theme.text.primary }]} numberOfLines={1} ellipsizeMode="tail">
           {loading 
             ? "Loading properties..." 
             : selectedPropertyData?.name 
             || "Select a property"}
         </Text>
-        <Icon name="chevron-down" size={18} color="#000000" />
+        <Icon name="chevron-down" size={18} color={theme.text.primary} />
       </TouchableOpacity>
 
       <Modal
@@ -56,14 +61,14 @@ const PropertyPicker = ({
         onRequestClose={() => setIsOpen(false)}
       >
         <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Property</Text>
+          <View style={[styles.modalContent, { backgroundColor: isDarkMode ? theme.surface : '#FFFFFF' }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: theme.borderColor }]}>
+              <Text style={[styles.modalTitle, { color: theme.text.primary }]}>Select Property</Text>
               <TouchableOpacity 
                 onPress={() => setIsOpen(false)}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Icon name="close" size={22} color="#000000" />
+                <Icon name="close" size={22} color={theme.text.primary} />
               </TouchableOpacity>
             </View>
 
@@ -73,7 +78,7 @@ const PropertyPicker = ({
                   key={property.id}
                   style={[
                     styles.option,
-                    selectedProperty === property.id && styles.selectedOption
+                    selectedProperty === property.id && [styles.selectedOption, { backgroundColor: `${theme.primary}15` }]
                   ]}
                   onPress={() => handleSelect(property.id)}
                 >
@@ -84,18 +89,19 @@ const PropertyPicker = ({
                       defaultSource={require('../assets/logo.png')}
                     />
                   ) : (
-                    <View style={styles.propertyImagePlaceholder}>
-                      <Icon name="home-outline" size={16} color="#666666" />
+                    <View style={[styles.propertyImagePlaceholder, { backgroundColor: isDarkMode ? '#333333' : '#F5F5F5' }]}>
+                      <Icon name="home-outline" size={16} color={theme.text.secondary} />
                     </View>
                   )}
                   <Text style={[
                     styles.optionText,
-                    selectedProperty === property.id && styles.selectedOptionText
+                    { color: theme.text.primary },
+                    selectedProperty === property.id && [styles.selectedOptionText, { color: theme.primary }]
                   ]}>
                     {property.name}
                   </Text>
                   {selectedProperty === property.id && (
-                    <Icon name="checkmark-circle" size={18} color="#FF385C" />
+                    <Icon name="checkmark-circle" size={18} color={theme.primary} />
                   )}
                 </TouchableOpacity>
               ))}
@@ -115,16 +121,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 8,
     borderWidth: 1,
-    borderColor: '#E0E0E0',
     paddingHorizontal: 12,
   },
   buttonText: {
     fontSize: 14,
-    color: '#000000',
     fontWeight: '500',
     flex: 1,
     marginRight: 8,
@@ -134,7 +137,6 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#F5F5F5',
   },
   modalContainer: {
     flex: 1,
@@ -142,7 +144,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: '80%',
@@ -154,12 +155,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000000',
   },
   optionsList: {
     padding: 12,
@@ -172,16 +171,13 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   selectedOption: {
-    backgroundColor: 'rgba(255, 56, 92, 0.1)',
   },
   optionText: {
     fontSize: 14,
-    color: '#000000',
     flex: 1,
     marginLeft: 8,
   },
   selectedOptionText: {
-    color: '#FF385C',
     fontWeight: '500',
   },
   propertyImage: {
@@ -194,7 +190,6 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#F5F5F5',
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -3,6 +3,7 @@ import {authenticateUser, fetchListings, getReservationsWithFinancialData} from 
 import * as Keychain from 'react-native-keychain';
 import {jwtDecode} from 'jwt-decode';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { View, Modal } from 'react-native';
 
 const AuthContext = createContext(null);
 
