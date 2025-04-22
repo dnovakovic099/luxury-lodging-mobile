@@ -28,7 +28,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   saveToCache,
   loadFromCache,
-  clearCache,
   CACHE_KEYS
 } from '../utils/cacheUtils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -44,8 +43,10 @@ const GOLD = {
 // Cache keys
 const METRICS_CACHE = CACHE_KEYS.MONTHLY_REVENUE; // Use the standardized key from cacheUtils
 const UPCOMING_RESERVATIONS_CACHE = CACHE_KEYS.UPCOMING_RESERVATIONS; // Use the standardized key from cacheUtils
-// Set debug flag to false
-const DEBUG_CACHE = false;
+// Set debug flag to true to debug real device cache issues
+const DEBUG_CACHE = false; // Set to true temporarily for debugging
+// Detect if we're on a real device vs simulator
+const IS_REAL_DEVICE = Platform.OS === 'ios' ? !Platform.constants.systemName.includes('Simulator') : !__DEV__;
 
 // Helper to get time of day greeting
 const getGreeting = () => {
@@ -191,30 +192,64 @@ const HomeScreen = ({ navigation }) => {
   const [reservationsFromCache, setReservationsFromCache] = useState(false);
   const [upcomingReservationsFromCache, setUpcomingReservationsFromCache] = useState(false);
   
+  // Helper function to determine if data is invalid/empty
+  const isEmptyMetricsData = (data) => {
+    if (!data) return true;
+    
+    // Check if revenue values are both 0
+    const hasNoRevenue = (!data.totalRevenue || data.totalRevenue === 0) && 
+                          (!data.futureRevenue || data.futureRevenue === 0);
+    
+    // Check if chart data exists but is empty
+    const hasEmptyChartData = !data.chartData || 
+      Object.keys(data.chartData).length === 0;
+    
+    // Check if chart data exists but all values are 0
+    const hasZeroChartData = data.chartData && 
+      Object.keys(data.chartData).length > 0 &&
+      Object.values(data.chartData).every(chart => 
+        !chart || !chart.data || chart.data.length === 0 || chart.data.every(val => val === 0)
+      );
+    
+    return hasNoRevenue && (hasEmptyChartData || hasZeroChartData);
+  };
+
   // Load metrics from cache
   const loadMetricsFromCache = async () => {
     try {
-      if (DEBUG_CACHE) console.log('Attempting to load metrics from cache...');
+      console.log(`🔍 LOADING CACHE (${IS_REAL_DEVICE ? 'REAL DEVICE' : 'SIMULATOR'})...`);
       
-      // First check if the cache key exists at all
-      const allKeys = await AsyncStorage.getAllKeys();
-      if (DEBUG_CACHE) console.log('All AsyncStorage keys:', allKeys);
-      
-      // Check specifically for our metrics key
-      const hasMetricsCache = allKeys.includes(METRICS_CACHE);
-      if (DEBUG_CACHE) console.log('Has metrics cache key:', hasMetricsCache);
-      
-      if (!hasMetricsCache) {
-        return false;
+      // ===== STEP 1: Check if cache exists =====
+      // Get all keys from AsyncStorage
+      try {
+        const allKeys = await AsyncStorage.getAllKeys();
+        
+        console.log('📋 ALL ASYNC STORAGE KEYS:', allKeys);
+        console.log(`🔑 LOOKING FOR METRICS KEY: "${METRICS_CACHE}"`);
+        
+        // Check if our metrics key exists
+        const hasMetricsCache = allKeys.includes(METRICS_CACHE);
+        
+        console.log(`🔑 HAS METRICS CACHE KEY: ${hasMetricsCache}`);
+        
+        if (!hasMetricsCache) {
+          console.log('❌ NO METRICS CACHE FOUND');
+          return false;
+        }
+      } catch (keysError) {
+        console.error('❌ ERROR GETTING ASYNC STORAGE KEYS:', keysError);
+        // Continue anyway - the key might still exist
       }
       
-      // First try using the proper cacheUtils function to get the data
-      const cachedMetrics = await loadFromCache(METRICS_CACHE);
-      
-      if (cachedMetrics) {
-        if (DEBUG_CACHE) {
-          console.log('Loaded metrics from cache successfully using cacheUtils');
-          console.log('Cached metrics summary:', {
+      // ===== STEP 2: Try loading with cacheUtils =====
+      try {
+        console.log('📤 TRYING TO LOAD CACHE WITH CACHEUTILS...');
+        
+        const cachedMetrics = await loadFromCache(METRICS_CACHE);
+        
+        if (cachedMetrics) {
+          console.log('✅ SUCCESSFULLY LOADED METRICS WITH CACHEUTILS');
+          console.log('📊 LOADED CACHE STRUCTURE:', {
             hasTotalRevenue: cachedMetrics.totalRevenue !== undefined,
             totalRevenue: cachedMetrics.totalRevenue,
             hasFutureRevenue: cachedMetrics.futureRevenue !== undefined,
@@ -222,114 +257,145 @@ const HomeScreen = ({ navigation }) => {
             hasChartData: !!cachedMetrics.chartData,
             chartDataKeys: cachedMetrics.chartData ? Object.keys(cachedMetrics.chartData) : []
           });
-        }
-        
-        // Validate data quality - check if chart data has actual content
-        let hasValidData = true;
-        
-        // Check if all values are zero/empty
-        if (cachedMetrics.totalRevenue === 0 && cachedMetrics.futureRevenue === 0) {
-          // If we have chart data, verify it's not just empty arrays
+          
+          // Check chart data content
           if (cachedMetrics.chartData) {
-            const chartDataKeys = Object.keys(cachedMetrics.chartData);
-            if (chartDataKeys.length > 0) {
-              // Check the first chart data set (e.g., '6M')
-              const firstKey = chartDataKeys[0];
-              const chartSet = cachedMetrics.chartData[firstKey];
+            const chartKeys = Object.keys(cachedMetrics.chartData);
+            if (chartKeys.length > 0) {
+              const firstKey = chartKeys[0];
+              const firstChart = cachedMetrics.chartData[firstKey];
               
-              // Consider data invalid if arrays are empty or all values are zero
-              if (!chartSet || 
-                  !chartSet.data || 
-                  chartSet.data.length === 0 || 
-                  chartSet.data.every(val => val === 0)) {
-                if (DEBUG_CACHE) console.log('Chart data exists but contains only empty arrays or zero values');
-                hasValidData = false;
+              console.log(`📈 FIRST CHART (${firstKey}) DATA:`, {
+                hasData: !!firstChart?.data,
+                dataLength: firstChart?.data?.length || 0,
+                dataValues: firstChart?.data?.slice(0, 3),
+                hasLabels: !!firstChart?.labels,
+                labelsLength: firstChart?.labels?.length || 0,
+                hasYears: !!firstChart?.years,
+                yearsLength: firstChart?.years?.length || 0,
+                total: firstChart?.total
+              });
+              
+              if (firstChart?.data) {
+                const nonZeroCount = firstChart.data.filter(v => v > 0).length;
+                console.log(`📈 ${nonZeroCount} of ${firstChart.data.length} values are non-zero`);
               }
-            } else {
-              hasValidData = false;
+            }
+          }
+          
+          // On real devices, be more lenient with validation
+          if (IS_REAL_DEVICE) {
+            // For real devices, accept ANY data that has structure
+            if (cachedMetrics.totalRevenue !== undefined || 
+                cachedMetrics.futureRevenue !== undefined || 
+                cachedMetrics.chartData) {
+              
+              if (DEBUG_CACHE) console.log('Real device: accepting cached data with minimal validation');
+              
+              // Update state with cached values
+              if (cachedMetrics.totalRevenue !== undefined) {
+                setTotalRevenue(cachedMetrics.totalRevenue);
+              }
+              
+              if (cachedMetrics.futureRevenue !== undefined) {
+                setFutureRevenue(cachedMetrics.futureRevenue);
+              }
+              
+              if (cachedMetrics.chartData) {
+                setChartData(cachedMetrics.chartData);
+              }
+              
+              setMetricsFromCache(true);
+              return true;
             }
           } else {
-            hasValidData = false;
+            // For simulator, do basic validation
+            if (!isEmptyMetricsData(cachedMetrics)) {
+              // Update state with cached values
+              if (cachedMetrics.totalRevenue !== undefined) {
+                setTotalRevenue(cachedMetrics.totalRevenue);
+              }
+              
+              if (cachedMetrics.futureRevenue !== undefined) {
+                setFutureRevenue(cachedMetrics.futureRevenue);
+              }
+              
+              if (cachedMetrics.chartData) {
+                setChartData(cachedMetrics.chartData);
+              }
+              
+              setMetricsFromCache(true);
+              return true;
+            } else {
+              if (DEBUG_CACHE) console.log('Cache data is empty or invalid');
+            }
           }
+        } 
+      } catch (cacheUtilsError) {
+        if (DEBUG_CACHE) {
+          console.error('Error loading with cacheUtils:', cacheUtilsError);
         }
+        // Continue to direct access fallback
+      }
+      
+      // ===== STEP 3: Try direct AsyncStorage access =====
+      if (DEBUG_CACHE) console.log('Trying direct AsyncStorage access...');
+      
+      let directSuccess = false;
+      try {
+        const rawValue = await AsyncStorage.getItem(METRICS_CACHE);
         
-        if (!hasValidData) {
-          if (DEBUG_CACHE) console.log('Cache data exists but appears to be empty or invalid');
+        if (!rawValue) {
+          if (DEBUG_CACHE) console.log('No raw cache value found in direct access');
           return false;
         }
         
-        // Update state with cached values
-        if (cachedMetrics.totalRevenue !== undefined) {
-          setTotalRevenue(cachedMetrics.totalRevenue);
-        }
+        if (DEBUG_CACHE) console.log('Raw cache value found, length:', rawValue.length);
         
-        if (cachedMetrics.futureRevenue !== undefined) {
-          setFutureRevenue(cachedMetrics.futureRevenue);
-        }
+        const parsedValue = JSON.parse(rawValue);
         
-        if (cachedMetrics.chartData !== undefined) {
-          setChartData(cachedMetrics.chartData);
+        if (DEBUG_CACHE) {
+          console.log('Parsed cache structure:', {
+            hasData: !!parsedValue.data,
+            hasTimestamp: !!parsedValue.timestamp,
+            directKeys: Object.keys(parsedValue),
+          });
         }
-        
-        setMetricsFromCache(true);
-        return true;
-      } 
-      
-      // If cacheUtils failed to load, try direct access as a fallback
-      if (DEBUG_CACHE) console.log('cacheUtils loading failed, trying direct access...');
-      
-      const rawCachedValue = await AsyncStorage.getItem(METRICS_CACHE);
-      if (!rawCachedValue) {
-        if (DEBUG_CACHE) console.log('No raw cache value found');
-        return false;
-      }
-      
-      try {
-        const parsedValue = JSON.parse(rawCachedValue);
-        if (DEBUG_CACHE) console.log('Parsed raw cache value successfully');
         
         // Extract data based on structure
         let extractedData = parsedValue;
         
-        // If data is wrapped in cacheUtils format, extract it
+        // If wrapped in cacheUtils format, extract the inner data
         if (parsedValue?.data && parsedValue?.timestamp) {
           extractedData = parsedValue.data;
           if (DEBUG_CACHE) console.log('Extracted data from cacheUtils wrapper');
         }
         
-        if (DEBUG_CACHE) {
-          console.log('Direct cache access metrics summary:', {
-            hasTotalRevenue: extractedData.totalRevenue !== undefined,
-            totalRevenue: extractedData.totalRevenue,
-            hasFutureRevenue: extractedData.futureRevenue !== undefined,
-            futureRevenue: extractedData.futureRevenue,
-            hasChartData: !!extractedData.chartData,
-            chartDataKeys: extractedData.chartData ? Object.keys(extractedData.chartData) : []
-          });
+        // For real devices, be even more lenient
+        if (IS_REAL_DEVICE || !isEmptyMetricsData(extractedData)) {
+          // Update state with any valid fields
+          if (extractedData.totalRevenue !== undefined) {
+            setTotalRevenue(extractedData.totalRevenue);
+          }
+          
+          if (extractedData.futureRevenue !== undefined) {
+            setFutureRevenue(extractedData.futureRevenue);
+          }
+          
+          if (extractedData.chartData) {
+            setChartData(extractedData.chartData);
+          }
+          
+          setMetricsFromCache(true);
+          directSuccess = true;
         }
-        
-        // Update state with extracted values
-        if (extractedData.totalRevenue !== undefined) {
-          setTotalRevenue(extractedData.totalRevenue);
-        }
-        
-        if (extractedData.futureRevenue !== undefined) {
-          setFutureRevenue(extractedData.futureRevenue);
-        }
-        
-        if (extractedData.chartData !== undefined) {
-          setChartData(extractedData.chartData);
-        }
-        
-        setMetricsFromCache(true);
-        return true;
-      } catch (parseError) {
-        console.error('Failed to parse raw cached value:', parseError);
-        return false;
+      } catch (directError) {
+        console.error('Error in direct AsyncStorage access:', directError);
       }
       
+      return directSuccess;
     } catch (error) {
-      console.error('Error loading metrics from cache:', error);
+      console.error('Unexpected error in loadMetricsFromCache:', error);
       return false;
     }
   };
@@ -337,46 +403,222 @@ const HomeScreen = ({ navigation }) => {
   // Save metrics to cache
   const saveMetricsToCache = async () => {
     try {
-      if (DEBUG_CACHE) console.log('Preparing to save metrics to cache...');
+      // Log device type for every save operation
+      console.log(`🔍 CACHE SAVE ATTEMPT on ${IS_REAL_DEVICE ? 'REAL DEVICE' : 'SIMULATOR'}`);
       
-      // Don't save empty data to prevent caching useless information
-      const hasValidChartData = chartData && 
-        Object.keys(chartData).some(key => 
-          chartData[key]?.data?.length > 0 && 
-          !chartData[key]?.data.every(val => val === 0)
+      // Log initial data state
+      console.log('📊 INITIAL DATA STATE:');
+      console.log(`    totalRevenue: ${totalRevenue}`);
+      console.log(`    futureRevenue: ${futureRevenue}`);
+      console.log(`    chartData keys: ${chartData ? Object.keys(chartData) : 'undefined'}`);
+      
+      // Detail chart data for first key (usually 6M)
+      if (chartData && Object.keys(chartData).length > 0) {
+        const firstKey = Object.keys(chartData)[0];
+        const firstChartData = chartData[firstKey];
+        console.log(`    First chart (${firstKey}) data:`, {
+          hasData: !!firstChartData?.data,
+          dataLength: firstChartData?.data?.length,
+          data: firstChartData?.data,
+          hasLabels: !!firstChartData?.labels,
+          labelsLength: firstChartData?.labels?.length,
+          total: firstChartData?.total
+        });
+      } else {
+        console.log('    No chart data available!');
+      }
+      
+      // Add a forced delay before sanitizing on real devices
+      if (IS_REAL_DEVICE) {
+        console.log('⏱️ Adding safety delay on real device before processing cache data');
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      // Check stack trace to see what triggered this save
+      console.log('🔄 SAVE TRIGGERED BY:', new Error().stack.split('\n').slice(1, 3).join('\n'));
+      
+      // Make sure we have valid data to cache
+      const sanitizedChartData = {};
+      
+      // Create a sanitized copy of chart data to avoid any reference issues
+      if (chartData) {
+        Object.keys(chartData).forEach(key => {
+          if (chartData[key]) {
+            sanitizedChartData[key] = {
+              labels: Array.isArray(chartData[key].labels) ? [...chartData[key].labels] : [],
+              data: Array.isArray(chartData[key].data) ? [...chartData[key].data] : [],
+              years: Array.isArray(chartData[key].years) ? [...chartData[key].years] : [],
+              total: typeof chartData[key].total === 'number' ? chartData[key].total : 0
+            };
+          }
+        });
+      }
+      
+      // Ensure we have numeric values for revenue
+      const sanitizedTotalRevenue = typeof totalRevenue === 'number' ? totalRevenue : 0;
+      const sanitizedFutureRevenue = typeof futureRevenue === 'number' ? futureRevenue : 0;
+      
+      // Log the sanitized data
+      console.log('🧹 SANITIZED DATA:');
+      console.log(`    sanitizedTotalRevenue: ${sanitizedTotalRevenue}`);
+      console.log(`    sanitizedFutureRevenue: ${sanitizedFutureRevenue}`);
+      console.log(`    sanitizedChartData keys: ${Object.keys(sanitizedChartData)}`);
+      
+      // Check if we have any meaningful data to cache
+      const hasEmptyChartData = !sanitizedChartData || 
+        Object.keys(sanitizedChartData).length === 0 || 
+        Object.values(sanitizedChartData).every(chart => 
+          !chart.data || chart.data.length === 0 || chart.data.every(val => val === 0)
         );
-        
-      // Only save if we have meaningful data
-      if (totalRevenue === 0 && futureRevenue === 0 && !hasValidChartData) {
-        if (DEBUG_CACHE) console.log('Skipping cache save - no meaningful data to cache');
+      
+      console.log(`    hasEmptyChartData: ${hasEmptyChartData}`);
+      
+      // Skip save if we have no meaningful data
+      if (sanitizedTotalRevenue === 0 && sanitizedFutureRevenue === 0 && hasEmptyChartData) {
+        console.log('❌ SKIPPING CACHE SAVE - No meaningful data to cache');
         return;
       }
       
       const metricsToCache = {
-        totalRevenue,
-        futureRevenue,
-        chartData
+        totalRevenue: sanitizedTotalRevenue,
+        futureRevenue: sanitizedFutureRevenue,
+        chartData: sanitizedChartData
       };
       
-      if (DEBUG_CACHE) {
-        console.log('Metrics to cache summary:', {
-          totalRevenue,
-          futureRevenue,
-          chartDataKeys: chartData ? Object.keys(chartData) : [],
-          hasValidChartData
+      console.log('📦 METRICS TO CACHE:');
+      console.log(`    totalRevenue: ${metricsToCache.totalRevenue}`);
+      console.log(`    futureRevenue: ${metricsToCache.futureRevenue}`);
+      console.log(`    chartData keys: ${Object.keys(metricsToCache.chartData)}`);
+      
+      // Detail final data for first chart
+      if (metricsToCache.chartData && Object.keys(metricsToCache.chartData).length > 0) {
+        const firstKey = Object.keys(metricsToCache.chartData)[0];
+        const firstChartData = metricsToCache.chartData[firstKey];
+        console.log(`    First chart (${firstKey}) final data:`, {
+          dataLength: firstChartData?.data?.length,
+          nonZeroValues: firstChartData?.data?.filter(v => v > 0)?.length || 0,
+          labelsLength: firstChartData?.labels?.length,
+          total: firstChartData?.total
         });
       }
       
+      // Log that we're about to save
+      console.log('💾 SAVING TO CACHE now...');
+      
+      // Try saving with cacheUtils first
       await saveToCache(METRICS_CACHE, metricsToCache);
       
-      // Verify the cache was saved successfully
+      // Double-check cache was saved successfully
       if (DEBUG_CACHE) {
+        // Verify the key exists
         const allKeys = await AsyncStorage.getAllKeys();
-        console.log('AsyncStorage keys after saving:', allKeys);
-        console.log('Metrics cache saved successfully');
+        const hasMetricsCache = allKeys.includes(METRICS_CACHE);
+        
+        console.log('✅ CACHE SAVE VERIFICATION:', {
+          hasMetricsCache,
+          allKeys
+        });
+        
+        if (hasMetricsCache) {
+          console.log('✅ Metrics cache saved successfully - verifying content...');
+          
+          // Verify the cache content
+          try {
+            // Try to immediately read back what we just saved
+            const savedRaw = await AsyncStorage.getItem(METRICS_CACHE);
+            
+            if (!savedRaw) {
+              console.error('❌ CRITICAL: Key exists but content is empty!');
+            } else {
+              console.log(`✅ Raw cache exists, length: ${savedRaw.length}`);
+              
+              // Try to parse the saved data
+              try {
+                const parsedSaved = JSON.parse(savedRaw);
+                
+                console.log('✅ Saved data structure:', {
+                  hasTimestamp: !!parsedSaved?.timestamp,
+                  hasData: !!parsedSaved?.data,
+                  directKeys: Object.keys(parsedSaved),
+                });
+                
+                // Get the actual data (unwrap from cacheUtils if needed)
+                const actualData = parsedSaved?.data || parsedSaved;
+                
+                // Verify essential fields
+                console.log('✅ Saved data verification:', {
+                  hasTotalRevenue: actualData.totalRevenue !== undefined,
+                  totalRevenue: actualData.totalRevenue,
+                  hasFutureRevenue: actualData.futureRevenue !== undefined,
+                  futureRevenue: actualData.futureRevenue,
+                  hasChartData: !!actualData.chartData,
+                  chartDataKeys: actualData.chartData ? Object.keys(actualData.chartData) : []
+                });
+                
+                // Check if chart data has actually been saved properly
+                if (actualData.chartData) {
+                  const chartKeys = Object.keys(actualData.chartData);
+                  if (chartKeys.length > 0) {
+                    const firstKey = chartKeys[0];
+                    const firstChart = actualData.chartData[firstKey];
+                    
+                    console.log(`✅ First chart (${firstKey}) verification:`, {
+                      hasData: !!firstChart?.data,
+                      dataLength: firstChart?.data?.length || 0,
+                      sampleData: firstChart?.data?.slice(0, 3),
+                      hasNonZeroValues: firstChart?.data?.some(v => v > 0) || false
+                    });
+                  }
+                }
+              } catch (parseError) {
+                console.error('❌ CRITICAL: Saved data cannot be parsed:', parseError);
+              }
+            }
+          } catch (verifyError) {
+            console.error('❌ Error verifying saved cache:', verifyError);
+          }
+        } else {
+          console.warn('❌ Failed to save metrics cache with cacheUtils - keys not found');
+          
+          // Fallback: Try direct save if cacheUtils failed
+          console.log('📌 Attempting direct save fallback...');
+          const jsonValue = JSON.stringify(metricsToCache);
+          await AsyncStorage.setItem(METRICS_CACHE, jsonValue);
+          
+          // Check if direct save worked
+          const afterDirectSave = await AsyncStorage.getAllKeys();
+          const directSaveWorked = afterDirectSave.includes(METRICS_CACHE);
+          
+          console.log('📌 Direct save result:', {
+            worked: directSaveWorked,
+            allKeys: afterDirectSave
+          });
+          
+          // Verify direct save content
+          if (directSaveWorked) {
+            try {
+              const directSavedRaw = await AsyncStorage.getItem(METRICS_CACHE);
+              console.log(`📌 Direct save verification: Raw length = ${directSavedRaw?.length || 0}`);
+            } catch (directVerifyError) {
+              console.error('❌ Error verifying direct save:', directVerifyError);
+            }
+          }
+        }
       }
     } catch (error) {
       console.error('Error saving metrics to cache:', error);
+      
+      // Last resort fallback - try direct save with simpler data
+      try {
+        if (DEBUG_CACHE) console.log('Attempting emergency direct cache save...');
+        const simplifiedData = {
+          totalRevenue: typeof totalRevenue === 'number' ? totalRevenue : 0,
+          futureRevenue: typeof futureRevenue === 'number' ? futureRevenue : 0
+        };
+        await AsyncStorage.setItem(METRICS_CACHE, JSON.stringify(simplifiedData));
+      } catch (fallbackError) {
+        console.error('Even emergency cache save failed:', fallbackError);
+      }
     }
   };
   
@@ -667,29 +909,81 @@ const HomeScreen = ({ navigation }) => {
   }, []);
   
   const loadDashboardData = async () => {
-    // Load metrics and reservations from cache
-    const [hasCachedMetrics, hasCachedReservations] = await Promise.all([
-      loadMetricsFromCache(),
-      loadReservationsFromCache()
-    ]);
+    if (DEBUG_CACHE) {
+      console.log(`Loading dashboard data (${IS_REAL_DEVICE ? 'REAL DEVICE' : 'SIMULATOR'})...`);
+    }
     
+    // First attempt: Try loading from cache
+    let hasCachedMetrics = false;
+    let hasCachedReservations = false;
+    
+    try {
+      [hasCachedMetrics, hasCachedReservations] = await Promise.all([
+        loadMetricsFromCache(),
+        loadReservationsFromCache()
+      ]);
+      
+      if (DEBUG_CACHE) {
+        console.log('Cache load results:', {
+          hasCachedMetrics,
+          hasCachedReservations
+        });
+      }
+    } catch (cacheError) {
+      console.error('Error loading from cache:', cacheError);
+    }
+    
+    // Show loading state if we don't have cached metrics
     if (!hasCachedMetrics) {
       setLoading(true);
     }
     
     try {
-      // Force reload if we have no listings
-      const shouldForceReload = !listings || listings.length === 0;
+      // Determine if we need to force reload data
+      const noListings = !listings || listings.length === 0;
+      const needsFreshData = noListings || !hasCachedMetrics;
       
-      // Load fresh data from API regardless of cache state if force reload needed
-      // or if we don't have valid cached metrics
-      await loadFinancialData(shouldForceReload || !hasCachedMetrics);
+      if (DEBUG_CACHE) {
+        console.log('Data load decision:', {
+          noListings,
+          needsFreshData,
+          willForceReload: needsFreshData
+        });
+      }
       
-      // Always fetch fresh reservations, but the loading indicator won't show
-      // if we have cached data because of reservationsFromCache state
-      await fetchUpcomingReservations();
+      // Real device special handling
+      if (IS_REAL_DEVICE && needsFreshData) {
+        if (DEBUG_CACHE) console.log('Real device: Using robust data loading approach');
+        
+        // Make multiple attempts with error handling for real devices
+        try {
+          await loadFinancialData(true); // Force reload for real device
+        } catch (firstAttemptError) {
+          console.error('First attempt to load financial data failed:', firstAttemptError);
+          
+          // Wait a moment and try again
+          setTimeout(async () => {
+            try {
+              await loadFinancialData(true);
+            } catch (retryError) {
+              console.error('Even retry attempt failed:', retryError);
+            }
+          }, 1000);
+        }
+      } else {
+        // Standard approach for simulator or if we have cached data
+        await loadFinancialData(needsFreshData);
+      }
+      
+      // Always fetch fresh reservations in the background
+      try {
+        await fetchUpcomingReservations();
+      } catch (reservationsError) {
+        console.error('Error fetching reservations:', reservationsError);
+      }
+      
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      console.error('Error in dashboard data loading:', error);
     } finally {
       setLoading(false);
     }
@@ -744,29 +1038,41 @@ const HomeScreen = ({ navigation }) => {
   
   // Function to handle data fetching for different chart views
   const handleChartDataFetch = async (viewMode, yearInfo) => {
+    console.log(`🔄 Fetching data for ${viewMode} view`);
     
     try {
       // Check if we already have valid data for this viewMode
       if (chartData && 
           chartData[viewMode]?.data?.length > 0 && 
           !chartData[viewMode]?.data.every(val => val === 0)) {
-        return Promise.resolve(chartData[viewMode]);
+        console.log(`✅ Using existing data for ${viewMode}`);
+        // Return existing data
+        return chartData[viewMode];
       }
       
       // Get listing IDs
-      const listingIds = listings.map(listing => Number(listing.id)).filter(id => !isNaN(id));
+      const listingIds = listings?.map(listing => Number(listing.id))?.filter(id => !isNaN(id)) || [];
       
       if (!listingIds.length) {
-        return Promise.resolve(null);
+        console.log('❌ No listing IDs available');
+        return null;
       }
+      
+      console.log(`🔄 Getting monthly data from API for ${listingIds.length} listings`);
       
       // Get fresh monthly data from API
       const monthlyData = await getMonthlyRevenueData(listingIds, 24);
       
       if (!monthlyData || !monthlyData.labels || !monthlyData.data) {
-        console.error('[HOME] Invalid monthly data received');
-        return Promise.resolve(null);
+        console.error('❌ Invalid monthly data received from API');
+        return null;
       }
+      
+      console.log(`✅ Got monthly data from API:`, {
+        labelsLength: monthlyData.labels.length,
+        dataLength: monthlyData.data.length,
+        firstValues: monthlyData.data.slice(0, 3)
+      });
       
       // Process the data based on view mode
       const today = new Date();
@@ -779,6 +1085,7 @@ const HomeScreen = ({ navigation }) => {
       
       // For YTD view
       if (viewMode === 'YTD') {
+        console.log(`🔄 Processing YTD data`);
         const ytdData = {
           labels: [],
           data: [],
@@ -810,10 +1117,18 @@ const HomeScreen = ({ navigation }) => {
         
         // Use uppercase key for YTD view
         updatedChartData['YTD'] = ytdData;
+        
+        console.log(`✅ Processed YTD data:`, {
+          labelsLength: ytdData.labels.length,
+          dataLength: ytdData.data.length,
+          firstValues: ytdData.data.slice(0, 3),
+          total: ytdData.total
+        });
       }
       
       // For 2024 view
       if (viewMode === '2024') {
+        console.log(`🔄 Processing 2024 data`);
         const year2024Data = {
           labels: [],
           data: [],
@@ -872,21 +1187,149 @@ const HomeScreen = ({ navigation }) => {
         } else {
           updatedChartData['2024'] = year2024Data;
         }
+        
+        console.log(`✅ Processed 2024 data:`, {
+          labelsLength: updatedChartData['2024'].labels.length,
+          dataLength: updatedChartData['2024'].data.length,
+          firstValues: updatedChartData['2024'].data.slice(0, 3),
+          total: updatedChartData['2024'].total
+        });
       }
       
+      // For 6M view (also handle ALL view)
+      if (viewMode === '6M' || viewMode === 'ALL') {
+        console.log(`🔄 Processing ${viewMode} data`);
+        // Create 6M data structure
+        const sixMonthsData = {
+          labels: [],
+          data: [],
+          years: [],
+          total: 0
+        };
+        
+        // Calculate the date 6 months ago from today
+        const sixMonthsAgo = new Date(today);
+        sixMonthsAgo.setMonth(today.getMonth() - 5); // -5 because we want 6 months INCLUDING current month
+        
+        // Get last 6 months labels
+        const lastSixMonthsLabels = [];
+        for (let i = 5; i >= 0; i--) {
+          const date = new Date();
+          date.setMonth(today.getMonth() - i);
+          const monthIndex = date.getMonth();
+          lastSixMonthsLabels.push(months[monthIndex]);
+        }
+        
+        // Process all monthly data to filter for last 6 months
+        for (let i = 0; i < monthlyData.labels.length; i++) {
+          const month = monthlyData.labels[i];
+          const value = monthlyData.data[i];
+          const year = monthlyData.years?.[i] || currentYear;
+          
+          // Check if this month is in our last 6 months
+          const monthIndex = lastSixMonthsLabels.indexOf(month);
+          if (monthIndex !== -1) {
+            // If already has a value, use the larger one (fix for duplicate month issue)
+            if (sixMonthsData.labels[monthIndex] === month && sixMonthsData.data[monthIndex] > 0) {
+              // Skip if we already have a value for this month
+              continue;
+            }
+            
+            // Add or update the value
+            if (!sixMonthsData.labels[monthIndex]) {
+              // Add new month
+              sixMonthsData.labels[monthIndex] = month;
+              sixMonthsData.data[monthIndex] = value;
+              sixMonthsData.years[monthIndex] = year;
+            } else {
+              // Update existing month
+              sixMonthsData.data[monthIndex] = Math.max(sixMonthsData.data[monthIndex] || 0, value);
+            }
+            
+            // Add to total
+            sixMonthsData.total += value;
+          }
+        }
+        
+        // Ensure we have all 6 months (fill in any missing ones)
+        const finalSixMonthsData = {
+          labels: lastSixMonthsLabels.slice(),
+          data: Array(6).fill(0),
+          years: Array(6).fill(currentYear),
+          total: 0
+        };
+        
+        // Copy existing data into the final structure
+        for (let i = 0; i < sixMonthsData.labels.length; i++) {
+          if (sixMonthsData.labels[i]) {
+            const monthIndex = lastSixMonthsLabels.indexOf(sixMonthsData.labels[i]);
+            if (monthIndex !== -1) {
+              finalSixMonthsData.data[monthIndex] = sixMonthsData.data[i] || 0;
+              finalSixMonthsData.years[monthIndex] = sixMonthsData.years[i] || currentYear;
+              finalSixMonthsData.total += sixMonthsData.data[i] || 0;
+            }
+          }
+        }
+        
+        // Update both 6M and ALL views
+        updatedChartData['6M'] = finalSixMonthsData;
+        updatedChartData['ALL'] = finalSixMonthsData; // For backward compatibility
+        
+        console.log(`✅ Processed ${viewMode} data:`, {
+          labelsLength: finalSixMonthsData.labels.length,
+          dataLength: finalSixMonthsData.data.length,
+          data: finalSixMonthsData.data,
+          total: finalSixMonthsData.total
+        });
+      }
       
       // Set the updated chart data
+      console.log(`📥 Setting updated chart data for ${viewMode}`);
       setChartData(updatedChartData);
       
+      // Trigger a cache save directly since we have fresh data
+      console.log(`💾 Triggering cache save after data fetch`);
+      setTimeout(() => {
+        saveMetricsToCache();
+      }, 1000);
+      
       // Return the specific view data
-      return Promise.resolve(updatedChartData[viewMode] || null);
+      return updatedChartData[viewMode] || null;
       
     } catch (error) {
-      console.error(`Error fetching data for ${viewMode} view:`, error);
-      return Promise.reject(error);
+      console.error(`❌ Error fetching data for ${viewMode} view:`, error);
+      return null;
     }
   };
   
+  // Add this new function to update parent state when chart data is loaded
+  const handleChartDataUpdate = (chartKey, updatedData) => {
+    console.log(`📥 CHART DATA UPDATE from RevenueChart: ${chartKey}`, {
+      hasLabels: !!updatedData.labels,
+      labelsLength: updatedData.labels?.length || 0,
+      hasData: !!updatedData.data,
+      dataLength: updatedData.data?.length || 0,
+      nonZeroValuesCount: updatedData.data?.filter(v => v > 0)?.length || 0,
+      total: updatedData.total
+    });
+    
+    // Only update if we have meaningful data
+    if (updatedData && updatedData.data && updatedData.data.length > 0) {
+      // Update the chart data in parent state
+      setChartData(prevData => {
+        const newData = {...prevData};
+        newData[chartKey] = updatedData;
+        
+        // After updating state, attempt to save to cache
+        setTimeout(() => {
+          saveMetricsToCache();
+        }, 500);
+        
+        return newData;
+      });
+    }
+  };
+
   const renderHeroSection = () => {
     // Get total properties count
     const propertiesCount = listings?.length || 0;
@@ -1039,6 +1482,7 @@ const HomeScreen = ({ navigation }) => {
       data={chartData} 
       loading={(loading && !metricsFromCache) || refreshing} 
       onFetchData={handleChartDataFetch}
+      onDataUpdate={handleChartDataUpdate}
     />;
   };
 

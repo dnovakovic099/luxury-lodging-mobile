@@ -166,7 +166,7 @@ const SimpleBarChart = ({ data }) => {
   );
 };
 
-const RevenueChart = ({ data, loading, onFetchData }) => {
+const RevenueChart = ({ data, loading, onFetchData, onDataUpdate }) => {
   // State for view mode
   const [viewMode, setViewMode] = useState('6M'); // '6M', 'YTD', 'MTD', or '2024'
   // State for dropdown menu
@@ -175,6 +175,8 @@ const RevenueChart = ({ data, loading, onFetchData }) => {
   const [fetchingData, setFetchingData] = useState(false);
   // Get theme context
   const { theme } = useTheme();
+  // Flag to track if we've notified parent of data
+  const [dataNotified, setDataNotified] = useState({});
 
   // Helper function to get display label for view mode
   const getViewModeLabel = (mode) => {
@@ -206,7 +208,20 @@ const RevenueChart = ({ data, loading, onFetchData }) => {
       setFetchingData(true);
       
       if (onFetchData) {
-        await onFetchData(mode);
+        const newData = await onFetchData(mode);
+        
+        // If we got fresh data and have a notification callback, use it
+        if (newData && onDataUpdate) {
+          console.log(`📱 RevenueChart: Notifying parent of newly fetched ${mode} data`);
+          onDataUpdate(mode, newData);
+          
+          // Update notification record
+          const dataSignature = JSON.stringify(newData);
+          setDataNotified(prev => ({ 
+            ...prev, 
+            [mode]: dataSignature 
+          }));
+        }
       }
     } catch (error) {
       console.error(`[CHART] Error while changing to ${mode} mode:`, error);
@@ -319,12 +334,35 @@ const RevenueChart = ({ data, loading, onFetchData }) => {
     return values.reduce((sum, val) => sum + (typeof val === 'number' ? val : 0), 0);
   };
 
-  // Debug actual values
+  // Debug actual values and notify parent of data updates
   useEffect(() => {
     if (data && data[viewMode]) {
       console.log(`[RevenueChart] ${viewMode} data:`, data[viewMode]);
+      
+      // Check if we have meaningful data
+      const viewData = data[viewMode];
+      const hasValidData = viewData && 
+                          viewData.data && 
+                          viewData.data.length > 0 && 
+                          viewData.data.some(val => val > 0);
+      
+      // Only notify parent if we have valid data and haven't notified for this viewMode yet
+      // or if the data has changed
+      const dataSignature = JSON.stringify(viewData);
+      if (hasValidData && 
+          (!dataNotified[viewMode] || dataNotified[viewMode] !== dataSignature) && 
+          onDataUpdate) {
+        console.log(`📱 RevenueChart: Notifying parent of ${viewMode} data update`);
+        onDataUpdate(viewMode, viewData);
+        
+        // Update notification record
+        setDataNotified(prev => ({ 
+          ...prev, 
+          [viewMode]: dataSignature 
+        }));
+      }
     }
-  }, [data, viewMode]);
+  }, [data, viewMode, onDataUpdate]);
 
   // Render the dropdown menu
   const renderDropdownMenu = () => {
