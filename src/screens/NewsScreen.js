@@ -28,9 +28,19 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { Picker } from '@react-native-picker/picker';
 import moment from 'moment';
+import RNFS from 'react-native-fs';
 import { getReservationsWithFinancialData } from '../services/api';
 // After installing react-native-dotenv, you would use:
 // import { GEMINI_API_KEY } from '@env';
+
+// IMPORTANT: This implementation now includes proper image processing for Gemini:
+// - We use react-native-fs to download images and convert them to base64
+// - Images are displayed in a carousel for user reference
+// - The same images are sent to Gemini's multimodal API for analysis
+//
+// Make sure to link react-native-fs properly by following these steps:
+// 1. For iOS: cd ios && pod install
+// 2. For Android: No additional steps needed
 
 // Get screen dimensions for responsive design
 const { width, height } = Dimensions.get('window');
@@ -177,6 +187,41 @@ const openURL = (url) => {
   }
 };
 
+// Helper function to fetch an image and convert it to base64
+const fetchImageAsBase64 = async (imageUrl) => {
+  try {
+    console.log(`Fetching image from URL: ${imageUrl}`);
+    
+    // Create a unique temporary file path
+    const tempFilePath = `${RNFS.CachesDirectoryPath}/${new Date().getTime()}_${Math.floor(Math.random() * 1000)}.jpg`;
+    
+    // Download the image to the temporary file
+    const downloadResult = await RNFS.downloadFile({
+      fromUrl: imageUrl,
+      toFile: tempFilePath,
+      background: false, // Set to true for large files
+      discretionary: true,
+      cacheable: true,
+    }).promise;
+    
+    if (downloadResult.statusCode !== 200 && downloadResult.statusCode !== undefined) {
+      throw new Error(`Failed to download image, status code: ${downloadResult.statusCode}`);
+    }
+    
+    // Read the file as base64
+    const base64Data = await RNFS.readFile(tempFilePath, 'base64');
+    console.log(`Successfully encoded image to base64, size: ${base64Data.length} characters`);
+    
+    // Clean up the temporary file
+    await RNFS.unlink(tempFilePath);
+    
+    return base64Data;
+  } catch (error) {
+    console.error(`Error processing image from ${imageUrl}:`, error);
+    throw error;
+  }
+};
+
 const AIReportScreen = ({ navigation }) => {
   const { theme, isDarkMode } = useTheme();
   const { listings, user } = useAuth();
@@ -190,6 +235,10 @@ const AIReportScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showFilters, setShowFilters] = useState(true);
+  
+  // New states for the listing optimization feature
+  const [analysisType, setAnalysisType] = useState('reservation'); // 'reservation' or 'listing'
+  const [imagesCarouselVisible, setImagesCarouselVisible] = useState(false);
   
   const scrollY = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -238,6 +287,62 @@ const AIReportScreen = ({ navigation }) => {
     setSelectedListing(property.id);
     setSelectedListingName(property.name || `Property #${property.id}`);
     setShowPropertyPicker(false);
+    
+    // Show images carousel if analysis type is listing
+    if (analysisType === 'listing') {
+      setImagesCarouselVisible(true);
+    }
+  };
+
+  // Function to toggle analysis type
+  const toggleAnalysisType = (type) => {
+    setAnalysisType(type);
+    
+    // Show images carousel if switching to listing analysis
+    if (type === 'listing') {
+      setImagesCarouselVisible(true);
+    } else {
+      setImagesCarouselVisible(false);
+    }
+  };
+  
+  // Function to render the images carousel
+  const renderImagesCarousel = () => {
+    const listing = listings.find(l => l.id === selectedListing);
+    if (!listing || !listing.listingImages || listing.listingImages.length === 0) {
+      return (
+        <View style={styles.noImagesContainer}>
+          <Icon name="image-outline" size={40} color={theme.text.secondary} />
+          <Text style={[styles.noImagesText, {color: theme.text.secondary}]}>
+            No images available for this property
+          </Text>
+        </View>
+      );
+    }
+    
+    return (
+      <View style={styles.carouselContainer}>
+        <Text style={[styles.carouselTitle, {color: theme.text.secondary}]}>
+          Property Images
+        </Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.carouselContent}
+          pagingEnabled
+        >
+          {listing.listingImages.map((image, index) => (
+            <View key={`image-${index}`} style={styles.carouselImageContainer}>
+              <Image
+                source={{ uri: image.url }}
+                style={styles.carouselImage}
+                resizeMode="cover"
+              />
+            </View>
+          ))}
+        </ScrollView>
+      </View>
+    );
   };
 
   // Function to fetch reservations for a listing with financial data
@@ -334,29 +439,7 @@ const AIReportScreen = ({ navigation }) => {
     const listing = listings.find(l => l.id === listingData);
     const listingName = listing ? listing.name || 'Unnamed property' : 'Property';
     
-    // Extract all the listing data for a more comprehensive analysis
-    const listingDetails = listing ? {
-      id: listing.id,
-      name: listing.name || 'Unnamed property',
-      location: `${listing.city || ''}, ${listing.state || ''}`,
-      propertyType: listing.propertyType || 'Vacation rental',
-      bedrooms: listing.bedrooms || 'N/A',
-      bathrooms: listing.bathrooms || 'N/A',
-      maxGuests: listing.maxGuests || listing.accommodates || 'N/A',
-      amenities: listing.amenities || [],
-      description: listing.description || '',
-      pricePerNight: listing.baseRate || listing.avgNightlyRate || 'N/A',
-      cleaningFee: listing.cleaningFee || 'N/A',
-      minimumStay: listing.minimumStay || 'N/A',
-      photos: (listing.photos && listing.photos.length) || 0,
-      reviews: listing.reviewsCount || 0,
-      rating: listing.rating || 'N/A',
-      instantBookable: listing.instantBookable ? 'Yes' : 'No',
-      cancellationPolicy: listing.cancellationPolicy || 'N/A',
-      lastUpdated: listing.lastModified || listing.updated || 'N/A'
-    } : null;
-    
-    // Calculate some metrics from reservation data
+    // Calculate metrics from reservation data
     let totalRevenue = 0;
     let totalOwnerPayout = 0;
     let totalNights = 0;
@@ -394,26 +477,7 @@ const AIReportScreen = ({ navigation }) => {
     let prompt = `As a luxury property analysis AI, analyze the following reservation and property data for "${listingName}".
     
 PROPERTY DETAILS:
-${listingDetails ? 
-`ID: ${listingDetails.id}
-Name: ${listingDetails.name}
-Location: ${listingDetails.location}
-Type: ${listingDetails.propertyType}
-Bedrooms: ${listingDetails.bedrooms}
-Bathrooms: ${listingDetails.bathrooms}
-Maximum Guests: ${listingDetails.maxGuests}
-Base Rate: ${typeof listingDetails.pricePerNight === 'number' ? '$' + listingDetails.pricePerNight : listingDetails.pricePerNight}
-Cleaning Fee: ${typeof listingDetails.cleaningFee === 'number' ? '$' + listingDetails.cleaningFee : listingDetails.cleaningFee}
-Minimum Stay: ${listingDetails.minimumStay}
-Instant Bookable: ${listingDetails.instantBookable}
-Cancellation Policy: ${listingDetails.cancellationPolicy}
-Number of Photos: ${listingDetails.photos}
-Number of Reviews: ${listingDetails.reviews}
-Rating: ${listingDetails.rating}
-Last Updated: ${listingDetails.lastUpdated}
-${listingDetails.description ? `Description: ${listingDetails.description.substring(0, 200)}${listingDetails.description.length > 200 ? '...' : ''}` : ''}
-${listingDetails.amenities && listingDetails.amenities.length > 0 ? `Amenities: ${listingDetails.amenities.slice(0, 10).join(', ')}${listingDetails.amenities.length > 10 ? '...' : ''}` : ''}` 
-: 'Property details not available'}
+${listing ? JSON.stringify(listing, null, 2) : 'Property details not available'}
 
 ${reservations && reservations.length > 0 ? 
 `SUMMARY METRICS:
@@ -469,31 +533,18 @@ Format your response with clear headings and bullet points for readability.`;
     setReportData(null);
     
     try {
-      // Fetch reservations for the selected listing
-      const reservations = await fetchReservations(selectedListing);
+      const listing = listings.find(l => l.id === selectedListing);
       
-      if (!reservations || reservations.length === 0) {
-        setError('No reservation data available for this listing');
-        setLoading(false);
-        return;
-      }
-      
-      console.log(`Fetched ${reservations.length} reservations for analysis`);
-      
-      // Debug API key (show only first/last 4 chars for security)
-      const keyLength = API_KEY.length;
-      const maskedKey = keyLength > 8 
-        ? `${API_KEY.substring(0, 4)}...${API_KEY.substring(keyLength - 4)}`
-        : '(key too short or not set)';
-      console.log('Using API key (masked):', maskedKey);
-      
+      // Initialize Gemini API
       console.log('Initializing Gemini model with model name: gemini-1.5-flash');
       const genAI = new GoogleGenerativeAI(API_KEY);
       console.log('GoogleGenerativeAI instance created');
       
       const model = genAI.getGenerativeModel({ 
         model: "gemini-1.5-flash",
-        systemInstruction: "You are a luxury property analysis AI that helps owners understand their reservation data and optimize their vacation rental business. You provide insightful, data-driven analysis and actionable recommendations.",
+        systemInstruction: analysisType === 'listing' 
+          ? "You are a luxury property optimization AI that helps owners improve their property listings. You analyze property images and data to provide actionable recommendations for enhancing appeal and bookability."
+          : "You are a luxury property analysis AI that helps owners understand their reservation data and optimize their vacation rental business. You provide insightful, data-driven analysis and actionable recommendations.",
         safetySettings: [
           {
             category: "HARM_CATEGORY_DANGEROUS_CONTENT",
@@ -508,16 +559,140 @@ Format your response with clear headings and bullet points for readability.`;
         }
       });
       
-      // Generate prompt with listing, reservations and user input
-      const prompt = generatePrompt(selectedListing, reservations, userPrompt);
+      let result;
       
-      // Log full prompt for debugging
-      console.log('========== FULL PROMPT SENT TO GEMINI ==========');
-      console.log(prompt);
-      console.log('===============================================');
+      if (analysisType === 'listing') {
+        // For listing optimization
+        if (!listing.listingImages || listing.listingImages.length === 0) {
+          setError('No images available for this listing');
+          setLoading(false);
+          return;
+        }
+        
+        // Create prompt for listing optimization
+        const listingPrompt = `As a luxury property optimization expert, analyze these images of "${listing.name || 'this property'}" and provide detailed feedback on:
+
+1. Visual appeal and staging
+2. Photo quality and composition
+3. Highlighting of key amenities
+4. Areas for improvement
+5. Specific recommendations to enhance the listing's marketability
+
+PROPERTY DETAILS:
+${JSON.stringify(listing, null, 2)}
+
+${userPrompt ? `Additional focus areas: ${userPrompt}` : ''}
+
+Format your response with clear section headers and actionable recommendations.`;
+
+        try {
+          console.log('Preparing images for Gemini analysis...');
+          
+          // Prepare content parts array with the text prompt as the first item
+          const contentParts = [
+            { text: listingPrompt }
+          ];
+          
+          // Create image parts from listing image URLs
+          // We'll use a maximum of 5 images to avoid exceeding token limits
+          const imagesToProcess = Math.min(listing.listingImages.length, 5);
+          console.log(`Processing ${imagesToProcess} images for Gemini analysis`);
+          
+          // Process images in parallel
+          const imagePromises = [];
+          for (let i = 0; i < imagesToProcess; i++) {
+            const imageUrl = listing.listingImages[i].url;
+            if (imageUrl) {
+              console.log(`Processing image ${i+1}: ${imageUrl}`);
+              // Add promise to array
+              imagePromises.push(
+                fetchImageAsBase64(imageUrl)
+                  .then(base64Data => ({
+                    inlineData: {
+                      mimeType: "image/jpeg",
+                      data: base64Data
+                    }
+                  }))
+                  .catch(err => {
+                    console.error(`Failed to process image ${i+1}:`, err);
+                    return null; // Return null for failed images
+                  })
+              );
+            }
+          }
+          
+          // Wait for all image processing to complete
+          const imageResults = await Promise.all(imagePromises);
+          
+          // Filter out any null results (failed images) and add to content parts
+          imageResults.filter(Boolean).forEach(imagePart => {
+            contentParts.push(imagePart);
+          });
+          
+          // Count successful images
+          const successfulImageCount = contentParts.length - 1;
+          console.log(`Successfully processed ${successfulImageCount} images for Gemini analysis`);
+          
+          // Only proceed with multimodal if we have images
+          if (successfulImageCount > 0) {
+            console.log('Sending multimodal request to Gemini API with images...');
+            result = await model.generateContent(contentParts);
+          } else {
+            // Fallback to text-only if no images were successfully processed
+            console.log('No images were successfully processed. Falling back to text-only analysis.');
+            
+            // Update prompt to mention image processing failure
+            const fallbackPrompt = `${listingPrompt}\n\nNote: The system attempted to analyze images but couldn't process them successfully. This analysis is based solely on the property details provided.`;
+            
+            result = await model.generateContent(fallbackPrompt);
+          }
+          
+        } catch (error) {
+          console.error("Error processing images for Gemini:", error);
+          
+          // Create a more descriptive error message for debugging
+          const errorDetails = error.toString();
+          const isImageFormatError = errorDetails.includes('image is not valid') || 
+                                    errorDetails.includes('400') || 
+                                    errorDetails.includes('Invalid argument');
+          
+          if (isImageFormatError) {
+            console.log('Gemini rejected the image format. Falling back to text-only analysis.');
+            
+            // Fallback prompt mentioning the image issue
+            const fallbackPrompt = `${listingPrompt}\n\nNote: The system attempted to analyze images but Gemini rejected the image format. This analysis is based solely on the property details provided.`;
+            
+            // Try again with text-only
+            result = await model.generateContent(fallbackPrompt);
+          } else {
+            // For other errors, rethrow to be handled by the outer try-catch
+            throw error;
+          }
+        }
+      } else {
+        // For reservation analysis, use existing implementation
+        const reservations = await fetchReservations(selectedListing);
+        
+        if (!reservations || reservations.length === 0) {
+          setError('No reservation data available for this listing');
+          setLoading(false);
+          return;
+        }
+        
+        console.log(`Fetched ${reservations.length} reservations for analysis`);
+        
+        // Generate prompt with listing, reservations and user input
+        const prompt = generatePrompt(selectedListing, reservations, userPrompt);
+        
+        // Log full prompt for debugging
+        console.log('========== FULL PROMPT SENT TO GEMINI ==========');
+        console.log(prompt);
+        console.log('===============================================');
+        
+        console.log('Sending request to Gemini API...');
+        result = await model.generateContent(prompt);
+      }
       
-      console.log('Sending request to Gemini API...');
-      const result = await model.generateContent(prompt);
       console.log('Received result from Gemini API');
       
       const response = await result.response;
@@ -1015,6 +1190,61 @@ Format your response with clear headings and bullet points for readability.`;
         {/* Collapsible Input Section */}
         {(showFilters || !reportData) && (
           <View style={[styles.inputSection, {backgroundColor: theme.background}]}>
+            {/* Analysis Type Toggle */}
+            <View style={styles.analysisTypeContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.analysisTypeButton,
+                  analysisType === 'reservation' && styles.analysisTypeButtonActive,
+                  { backgroundColor: analysisType === 'reservation' ? GOLD.light : theme.surface }
+                ]}
+                onPress={() => toggleAnalysisType('reservation')}
+              >
+                <Icon 
+                  name="analytics-outline" 
+                  size={18} 
+                  color={analysisType === 'reservation' ? GOLD.primary : theme.text.secondary} 
+                />
+                <Text 
+                  style={[
+                    styles.analysisTypeText,
+                    { 
+                      color: analysisType === 'reservation' ? GOLD.primary : theme.text.secondary,
+                      fontWeight: analysisType === 'reservation' ? '600' : '400'
+                    }
+                  ]}
+                >
+                  Reservation Analysis
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.analysisTypeButton,
+                  analysisType === 'listing' && styles.analysisTypeButtonActive,
+                  { backgroundColor: analysisType === 'listing' ? GOLD.light : theme.surface }
+                ]}
+                onPress={() => toggleAnalysisType('listing')}
+              >
+                <Icon 
+                  name="image-outline" 
+                  size={18} 
+                  color={analysisType === 'listing' ? GOLD.primary : theme.text.secondary} 
+                />
+                <Text 
+                  style={[
+                    styles.analysisTypeText,
+                    { 
+                      color: analysisType === 'listing' ? GOLD.primary : theme.text.secondary,
+                      fontWeight: analysisType === 'listing' ? '600' : '400'
+                    }
+                  ]}
+                >
+                  Listing Optimization
+                </Text>
+              </TouchableOpacity>
+            </View>
+            
             <View style={styles.inputRow}>
               <Text style={[styles.sectionLabel, {color: theme.text.secondary}]}>Property</Text>
               
@@ -1033,9 +1263,14 @@ Format your response with clear headings and bullet points for readability.`;
               </TouchableOpacity>
             </View>
             
+            {/* Image Carousel for Listing Optimization */}
+            {analysisType === 'listing' && imagesCarouselVisible && renderImagesCarousel()}
+            
             <View style={styles.promptContainer}>
               <Text style={[styles.sectionLabel, {color: theme.text.secondary}]}>
-                Additional analysis (optional)
+                {analysisType === 'listing' 
+                  ? 'Specific areas to focus on (optional)'
+                  : 'Additional analysis (optional)'}
               </Text>
               
               <TextInput
@@ -1047,7 +1282,9 @@ Format your response with clear headings and bullet points for readability.`;
                     borderColor: 'rgba(0,0,0,0.05)'
                   }
                 ]}
-                placeholder="e.g., Analyze weekend vs weekday performance"
+                placeholder={analysisType === 'listing' 
+                  ? "e.g., Focus on bedroom staging, exterior appeal"
+                  : "e.g., Analyze weekend vs weekday performance"}
                 placeholderTextColor={theme.text.placeholder}
                 value={userPrompt}
                 onChangeText={setUserPrompt}
@@ -1062,9 +1299,18 @@ Format your response with clear headings and bullet points for readability.`;
             >
               <View style={[styles.buttonGradient, {backgroundColor: GOLD.primary}]}>
                 <Text style={styles.runButtonText}>
-                  {loading ? 'Generating Report...' : 'Generate AI Report'}
+                  {loading ? 'Generating Report...' : analysisType === 'listing' 
+                    ? 'Generate Listing Optimization' 
+                    : 'Generate AI Report'}
                 </Text>
-                {!loading && <Icon name="analytics-outline" size={20} color="#FFFFFF" style={styles.buttonIcon} />}
+                {!loading && 
+                  <Icon 
+                    name={analysisType === 'listing' ? "image-outline" : "analytics-outline"} 
+                    size={20} 
+                    color="#FFFFFF" 
+                    style={styles.buttonIcon} 
+                  />
+                }
               </View>
             </TouchableOpacity>
           </View>
@@ -1075,7 +1321,9 @@ Format your response with clear headings and bullet points for readability.`;
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={GOLD.primary} />
             <Text style={[styles.loadingText, { color: theme.text.secondary }]}>
-              Analyzing property data and generating insights...
+              {analysisType === 'listing' 
+                ? 'Processing images and analyzing listing data...' 
+                : 'Analyzing property data and generating insights...'}
             </Text>
           </View>
         ) : error ? (
@@ -1624,6 +1872,66 @@ const styles = StyleSheet.create({
   },
   premiumLineSpacing: {
     height: 8,
+  },
+  // Analysis Type Toggle
+  analysisTypeContainer: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  analysisTypeButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    marginHorizontal: 4,
+  },
+  analysisTypeButtonActive: {
+    borderWidth: 1,
+    borderColor: GOLD.primary,
+  },
+  analysisTypeText: {
+    fontSize: 13,
+    marginLeft: 6,
+  },
+  // Carousel styles
+  carouselContainer: {
+    marginBottom: 16,
+  },
+  carouselTitle: {
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  carouselContent: {
+    paddingHorizontal: 4,
+  },
+  carouselImageContainer: {
+    width: width * 0.3,
+    height: width * 0.2,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginRight: 8,
+  },
+  carouselImage: {
+    width: '100%',
+    height: '100%',
+  },
+  noImagesContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    marginBottom: 16,
+    backgroundColor: 'rgba(0,0,0,0.03)',
+    borderRadius: 8,
+  },
+  noImagesText: {
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
   },
 });
 
