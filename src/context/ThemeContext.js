@@ -64,15 +64,17 @@ const lightTheme = {
 const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
-  const [isDarkMode, setIsDarkMode] = useState(true); // Default to dark mode
+  const [isDarkMode, setIsDarkMode] = useState(false); // Default to light mode instead of dark mode
   const [isLoading, setIsLoading] = useState(true);
 
   // Load saved theme preference
   useEffect(() => {
     const loadThemePreference = async () => {
       try {
-        const savedTheme = await AsyncStorage.getItem('themeMode');
-        setIsDarkMode(savedTheme === 'light' ? false : true);
+        // Force light mode regardless of saved preference
+        // This is a temporary fix for TestFlight
+        await AsyncStorage.setItem('themeMode', 'light');
+        setIsDarkMode(false);
       } catch (error) {
         console.error('Error loading theme preference:', error);
       } finally {
@@ -85,6 +87,12 @@ export const ThemeProvider = ({ children }) => {
 
   // Toggle theme function
   const toggleTheme = async () => {
+    // Temporarily disable theme toggling
+    // Return immediately to prevent theme changes
+    return;
+    
+    // Original toggle code (disabled for now)
+    /*
     const newMode = !isDarkMode;
     setIsDarkMode(newMode);
     try {
@@ -92,13 +100,14 @@ export const ThemeProvider = ({ children }) => {
     } catch (error) {
       console.error('Error saving theme preference:', error);
     }
+    */
   };
 
-  // Current theme based on mode
-  const theme = isDarkMode ? darkTheme : lightTheme;
+  // Always use light theme regardless of isDarkMode state
+  const theme = lightTheme;
 
   return (
-    <ThemeContext.Provider value={{ theme, isDarkMode, toggleTheme, isLoading }}>
+    <ThemeContext.Provider value={{ theme, isDarkMode: false, toggleTheme, isLoading }}>
       {children}
     </ThemeContext.Provider>
   );
