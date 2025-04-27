@@ -61,6 +61,32 @@ const MOCK_CHART_DATA = {
   }
 };
 
+// Helper function to normalize month format - ensures consistent formatting
+const normalizeMonthFormat = (monthStr) => {
+  if (!monthStr || typeof monthStr !== 'string') return '';
+  
+  // Convert to lowercase first
+  const month = monthStr.toLowerCase().trim();
+  
+  // Map all possible variations to standard format
+  const monthMap = {
+    'jan': 'Jan', 'january': 'Jan',
+    'feb': 'Feb', 'february': 'Feb',
+    'mar': 'Mar', 'march': 'Mar',
+    'apr': 'Apr', 'april': 'Apr',
+    'may': 'May',
+    'jun': 'Jun', 'june': 'Jun',
+    'jul': 'Jul', 'july': 'Jul',
+    'aug': 'Aug', 'august': 'Aug',
+    'sep': 'Sep', 'sept': 'Sep', 'september': 'Sep',
+    'oct': 'Oct', 'october': 'Oct',
+    'nov': 'Nov', 'november': 'Nov',
+    'dec': 'Dec', 'december': 'Dec'
+  };
+  
+  return monthMap[month] || monthStr; // Return mapped value or original if not found
+};
+
 const ListingDetailScreen = ({ route }) => {
   const { property, totalRevenue: passedTotalRevenue } = route.params;
   const [refreshing, setRefreshing] = useState(false);
@@ -172,49 +198,47 @@ const ListingDetailScreen = ({ route }) => {
       
       // Get monthly revenue data
       try {
+        console.log("Fetching monthly revenue data for listing ID:", listingId);
         const monthlyData = await getMonthlyRevenueData([listingId], 12);
+        console.log("API monthly data received:", JSON.stringify(monthlyData));
         
+        // Simply use the data directly from the API
         if (monthlyData && monthlyData.labels && monthlyData.labels.length > 0) {
-          // Simplified chart data format
-          const chartData = {
+          // Create a direct copy of the API data
+          const simpleChartData = {
+            // Use the API data directly for all views
             '6M': {
-              labels: monthlyData.labels.slice(0, 6),
-              data: monthlyData.data.slice(0, 6)
+              labels: [...monthlyData.labels],
+              data: [...monthlyData.data]
             },
             'YTD': {
-              labels: monthlyData.labels.slice(0, 6), // For simplicity
-              data: monthlyData.data.slice(0, 6)
+              labels: [...monthlyData.labels],
+              data: [...monthlyData.data]
             },
             'MTD': {
-              labels: [monthlyData.labels[0]],
-              data: [monthlyData.data[0]]
+              labels: [monthlyData.labels[0]],  // Latest month
+              data: [monthlyData.data[0]]       // Latest month's data
             },
             '2024': {
-              labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-              data: Array(12).fill(0).map((_, idx) => {
-                const monthIdx = monthlyData.labels.indexOf(
-                  ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][idx]
-                );
-                return monthIdx !== -1 ? monthlyData.data[monthIdx] : 0;
-              })
+              labels: [...monthlyData.labels],
+              data: [...monthlyData.data]
             },
             'ALL': {
-              labels: monthlyData.labels.slice(0, 6),
-              data: monthlyData.data.slice(0, 6)
+              labels: [...monthlyData.labels],
+              data: [...monthlyData.data]
             }
           };
           
-          console.log('Chart data processed successfully');
-          setChartData(chartData);
+          console.log("Using direct API data for chart:", JSON.stringify(simpleChartData));
+          setChartData(simpleChartData);
         } else {
-          console.log('Using mock chart data due to invalid API response');
+          console.log("API returned invalid data, using mock data instead");
           setChartData(MOCK_CHART_DATA);
         }
       } catch (chartError) {
         console.error('Error getting chart data:', chartError);
         setChartData(MOCK_CHART_DATA);
       }
-      
     } catch (error) {
       console.error('Error loading property data:', error);
       setChartData(MOCK_CHART_DATA);
@@ -475,6 +499,15 @@ const ListingDetailScreen = ({ route }) => {
               data={chartData} 
               loading={loading && !dataFromCache}
               chartHeight={220}
+              onFetchData={async (period) => {
+                console.log(`Chart requested data for period: ${period}`);
+                // Return the data for the requested period
+                return chartData[period] || null;
+              }}
+              onDataUpdate={(period, periodData) => {
+                console.log(`Chart updated with data for ${period}:`, periodData);
+                // This callback is for informational purposes only
+              }}
             />
           </View>
           

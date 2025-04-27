@@ -283,64 +283,22 @@ const RevenueChart = ({ data, loading, onFetchData, onDataUpdate }) => {
       
       // If no data is available, return default
       if (!data || !data[viewMode] || !data[viewMode].data) {
+        console.log(`No data found for ${viewMode} view`);
         return defaultData;
       }
 
       // Extract the data for current view mode
       const viewData = data[viewMode];
       const values = viewData.data || [];
+      const viewLabels = viewData.labels || [];
       
-      // For 6M view, handle missing data
-      if (viewMode === '6M') {
-        const sixMonthLabels = getLastSixMonthsLabels();
-        const sixMonthData = sixMonthLabels.map(label => ({ x: label, y: 0 }));
-        
-        // Handle missing November data 
-        if (Array.isArray(viewData.labels) && 
-            viewData.labels.length === 5 &&
-            viewData.labels[0] === 'Dec') {
-          
-          // Fill in all available data
-          for (let i = 0; i < viewData.labels.length; i++) {
-            const apiMonth = viewData.labels[i];
-            const monthIndex = sixMonthLabels.indexOf(apiMonth);
-            if (monthIndex !== -1) {
-              sixMonthData[monthIndex].y = viewData.data[i];
-            }
-          }
-          
-          // Estimate November value as 80% of December
-          const novemberIndex = sixMonthLabels.indexOf('Nov');
-          if (novemberIndex !== -1 && viewData.data[0]) {
-            sixMonthData[novemberIndex].y = Math.round(viewData.data[0] * 0.8);
-          }
-        } 
-        // Handle API data normally
-        else if (Array.isArray(values) && values.length > 0) {
-          // Two possible data formats: with labels or without
-          if (Array.isArray(viewData.labels) && viewData.labels.length > 0) {
-            for (let i = 0; i < viewData.labels.length; i++) {
-              const apiMonth = viewData.labels[i];
-              const monthIndex = sixMonthLabels.indexOf(apiMonth);
-              if (monthIndex !== -1 && viewData.data && viewData.data[i] !== undefined) {
-                sixMonthData[monthIndex].y = viewData.data[i];
-              }
-            }
-          } else {
-            // No labels, assume data is already in right order
-            const dataLength = Math.min(values.length, 6);
-            for (let i = 0; i < dataLength; i++) {
-              sixMonthData[i].y = values[i];
-            }
-          }
-        }
-        
-        return sixMonthData;
+      if (values.length === 0 || viewLabels.length === 0) {
+        console.log(`Empty data for ${viewMode} view, using default`);
+        return defaultData;
       }
       
-      // For other views, map labels with values
-      const chartLabels = viewData.labels || getLabels();
-      return chartLabels.map((label, index) => ({
+      // For all views, create data for SimpleBarChart
+      return viewLabels.map((label, index) => ({
         x: label,
         y: index < values.length ? values[index] : 0
       }));

@@ -125,6 +125,7 @@ export const fetchReservations = async (params = {}) => {
       ...params,
       limit: params.limit || 10000, // Use provided limit or default to 10000
       sortOrder: params.sortBy || 'arrivalDate', // Default sort by arrival date
+      sortDirection: 'ASC', // Sort in ascending order (oldest first)
     };
     
     if (params.listingMapIds) {
@@ -189,6 +190,11 @@ export const fetchReservations = async (params = {}) => {
     } else if (Array.isArray(response)) {
       reservations = response;
       meta.total = reservations.length;
+    }
+
+    // Explicitly reverse the reservations array when sorting by date
+    if (apiParams.sortOrder === 'arrivalDate' || apiParams.sortOrder === 'checkInDate') {
+      reservations = reservations.reverse();
     }
 
     return { 

@@ -11,6 +11,7 @@ import {
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { theme } from '../theme';
+import { format, parseISO } from 'date-fns';
 
 // Define gold colors for consistency
 const GOLD = {
@@ -63,11 +64,8 @@ const DateRangePicker = ({
     if (!date) return "Select";
     
     try {
-      return date.toLocaleDateString('en-US', { 
-        month: 'short', 
-        day: 'numeric',
-        year: 'numeric'
-      });
+      // Format using date-fns to maintain consistency
+      return format(date, 'MMM d, yyyy');
     } catch (error) {
       console.error("Error formatting date for display:", error);
       return "Select";
@@ -77,7 +75,24 @@ const DateRangePicker = ({
   // Handle date selection
   const handleDateSelect = (day) => {
     try {
-      const selectedDate = new Date(day.timestamp);
+      // Use the date string directly to avoid timezone issues
+      // Format: YYYY-MM-DD from the day object
+      const dateStr = day.dateString; // This is in YYYY-MM-DD format
+      const [year, month, dayOfMonth] = dateStr.split('-').map(Number);
+      
+      // Create date in LOCAL time zone at midnight (not UTC) to match what's displayed in the calendar
+      const selectedDate = new Date(year, month - 1, dayOfMonth, 0, 0, 0, 0);
+      
+      // Create a formatted date string that will be consistent with our comparison logic
+      const formattedDateStr = format(selectedDate, 'yyyy-MM-dd');
+      
+      console.log('Date selected from calendar:', {
+        originalTimestamp: day.timestamp,
+        dateString: day.dateString,
+        formattedDateString: formattedDateStr,
+        selectedDate: selectedDate.toISOString(),
+        localDateString: selectedDate.toLocaleDateString()
+      });
       
       if (selectionMode === 'start') {
         setTempStartDate(selectedDate);
@@ -213,6 +228,18 @@ const DateRangePicker = ({
             <Text style={[styles.dateText, startDate && styles.dateTextActive]}>
               {formatDateForDisplay(startDate)}
             </Text>
+            {/* Reset button for start date */}
+            {startDate && (
+              <TouchableOpacity
+                style={styles.resetButton}
+                onPress={(e) => {
+                  e.stopPropagation(); // Prevent opening the calendar
+                  if (onStartDateChange) onStartDateChange(null);
+                }}
+              >
+                <Icon name="close-circle" size={16} color="#666" />
+              </TouchableOpacity>
+            )}
           </View>
         </TouchableOpacity>
         
@@ -231,6 +258,18 @@ const DateRangePicker = ({
             <Text style={[styles.dateText, endDate && styles.dateTextActive]}>
               {formatDateForDisplay(endDate)}
             </Text>
+            {/* Reset button for end date */}
+            {endDate && (
+              <TouchableOpacity
+                style={styles.resetButton}
+                onPress={(e) => {
+                  e.stopPropagation(); // Prevent opening the calendar
+                  if (onEndDateChange) onEndDateChange(null);
+                }}
+              >
+                <Icon name="close-circle" size={16} color="#666" />
+              </TouchableOpacity>
+            )}
           </View>
         </TouchableOpacity>
       </View>
@@ -385,6 +424,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: GOLD.primary,
     fontWeight: '600',
+  },
+  resetButton: {
+    padding: 4,
+    marginLeft: 2,
   },
 });
 

@@ -177,13 +177,12 @@ const UpcomingReservations = ({ reservations = [], loading = false }) => {
       const hasValidId = res.id || res.reservationId || res.airbnbListingId || res.confirmationCode;
       
       if (!hasValidId) {
-        // Remove debugging console log
         return null;
       }
       return true;
     });
     
-    // Sort by check-in date (ascending order - upcoming first)
+    // Explicitly sort by date in ASCENDING order (oldest first) for UpcomingReservations
     const sortedReservations = [...validReservations].sort((a, b) => {
       // Get check-in dates from various possible fields
       const aDate = a.checkIn || a.arrivalDate || a.checkInDate;
@@ -213,7 +212,8 @@ const UpcomingReservations = ({ reservations = [], loading = false }) => {
       return aTime - bTime; // Sort ascending (earliest dates first)
     });
     
-    return sortedReservations;
+    // For the "Upcoming Reservations" section, we want to show just the next 3-5 reservations
+    return sortedReservations.slice(0, 5);
   }, [reservations]);
   
   const handleSeeAll = () => {

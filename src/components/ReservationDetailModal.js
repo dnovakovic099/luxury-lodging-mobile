@@ -11,7 +11,8 @@ import {
   Image,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { format, isValid } from 'date-fns';
+import { format, isValid, parseISO } from 'date-fns';
+import { utcToZonedTime } from 'date-fns-tz';
 import { theme } from '../theme';
 
 // Channel colors
@@ -24,26 +25,72 @@ const CHANNEL_COLORS = {
 // Safe date formatting function
 const safeFormatDate = (dateValue) => {
   try {
-    // Handle different date formats
-    let date;
+    // Debug the input
+    console.log(`safeFormatDate input:`, {
+      value: dateValue,
+      type: typeof dateValue,
+      isDate: dateValue instanceof Date
+    });
     
+    // Handle different date formats
     if (!dateValue) return 'N/A';
     
+    // If it's already a Date object, format it directly
     if (dateValue instanceof Date) {
-      date = dateValue;
-    } else if (typeof dateValue === 'string') {
-      date = new Date(dateValue);
-    } else {
-      return 'N/A';
+      // Check if date is valid before formatting
+      if (!isValid(dateValue)) {
+        console.warn(`Invalid date detected: ${dateValue}`);
+        return 'N/A';
+      }
+      
+      // Extract date parts directly - this preserves the exact date regardless of timezone
+      const year = dateValue.getUTCFullYear();
+      const month = dateValue.getUTCMonth();
+      const day = dateValue.getUTCDate();
+      
+      // Create a string representation with day of week - month day, year
+      const dayOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(Date.UTC(year, month, day)).getUTCDay()];
+      const monthName = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month];
+      
+      const result = `${dayOfWeek}, ${monthName} ${day}, ${year}`;
+      console.log(`Formatted from Date object: ${result}`);
+      return result;
+    } 
+    
+    // If it's a string, use parseISO to preserve the exact date without timezone adjustment
+    if (typeof dateValue === 'string') {
+      try {
+        // Parse the date as UTC
+        const parsedDate = parseISO(dateValue);
+        console.log(`String date parsed:`, {
+          original: dateValue,
+          parsed: parsedDate
+        });
+        
+        if (!isValid(parsedDate)) {
+          console.warn(`Invalid date string detected: ${dateValue}`);
+          return 'N/A';
+        }
+        
+        // Extract date parts directly from UTC
+        const year = parsedDate.getUTCFullYear();
+        const month = parsedDate.getUTCMonth();
+        const day = parsedDate.getUTCDate();
+        
+        // Create a string representation with day of week - month day, year
+        const dayOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(Date.UTC(year, month, day)).getUTCDay()];
+        const monthName = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month];
+        
+        const result = `${dayOfWeek}, ${monthName} ${day}, ${year}`;
+        console.log(`Formatted from string: ${result}`);
+        return result;
+      } catch (e) {
+        console.error(`Error parsing date string: ${e.message}`);
+        return 'N/A';
+      }
     }
     
-    // Check if date is valid before formatting
-    if (!isValid(date)) {
-      console.warn(`Invalid date detected: ${dateValue}`);
-      return 'N/A';
-    }
-    
-    return format(date, 'EEE, MMM d, yyyy');
+    return 'N/A';
   } catch (error) {
     console.error(`Error formatting date: ${error.message}`, dateValue);
     return 'N/A';
@@ -149,12 +196,22 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
   // Safely calculate the nights count between arrival and departure dates
   const calculateNightsCount = () => {
     try {
+      // Debug dates
+      console.log("Calculate nights input dates:", {
+        arrivalDate: reservation.arrivalDate,
+        departureDate: reservation.departureDate,
+      });
+      
       if (!reservation.arrivalDate || !reservation.departureDate) {
         // If we have a nights property, use that
         if (reservation.nights) {
           const nightsNum = parseInt(reservation.nights, 10);
-          if (!isNaN(nightsNum)) return nightsNum;
+          if (!isNaN(nightsNum)) {
+            console.log(`Using provided nights value: ${nightsNum}`);
+            return nightsNum;
+          }
         }
+        console.log("No valid dates for nights calculation");
         return 0;
       }
       
@@ -163,14 +220,22 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
       // Handle case where dates are already Date objects
       if (reservation.arrivalDate instanceof Date) {
         arrival = reservation.arrivalDate;
+      } else if (typeof reservation.arrivalDate === 'string') {
+        // Use parseISO to preserve exact date without timezone conversion
+        arrival = parseISO(reservation.arrivalDate);
       } else {
-        arrival = new Date(reservation.arrivalDate);
+        console.log("Invalid arrival date format");
+        return 0;
       }
       
       if (reservation.departureDate instanceof Date) {
         departure = reservation.departureDate;
+      } else if (typeof reservation.departureDate === 'string') {
+        // Use parseISO to preserve exact date without timezone conversion
+        departure = parseISO(reservation.departureDate);
       } else {
-        departure = new Date(reservation.departureDate);
+        console.log("Invalid departure date format");
+        return 0;
       }
       
       // Verify dates are valid
@@ -180,23 +245,37 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
         // Try to use nights property if available
         if (reservation.nights) {
           const nightsNum = parseInt(reservation.nights, 10);
-          if (!isNaN(nightsNum)) return nightsNum;
+          if (!isNaN(nightsNum)) {
+            console.log(`Using provided nights value after invalid date detection: ${nightsNum}`);
+            return nightsNum;
+          }
         }
         
+        console.log("No valid dates or nights value");
         return 0;
       }
       
+      console.log("Processed dates for nights calculation:", {
+        arrival,
+        departure
+      });
+      
       const diffTime = Math.abs(departure - arrival);
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      console.log(`Calculated nights: ${diffDays}`);
       return diffDays;
     } catch (error) {
       console.error(`Error calculating nights: ${error.message}`);
       
       if (reservation.nights) {
         const nightsNum = parseInt(reservation.nights, 10);
-        if (!isNaN(nightsNum)) return nightsNum;
+        if (!isNaN(nightsNum)) {
+          console.log(`Using provided nights value after error: ${nightsNum}`);
+          return nightsNum;
+        }
       }
       
+      console.log("Returning 0 nights due to error");
       return 0;
     }
   };
@@ -252,6 +331,12 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
   // Format date range for the header with improved error handling
   const formatDateRange = () => {
     try {
+      console.log("formatDateRange input:", {
+        arrivalDate: reservation.arrivalDate,
+        departureDate: reservation.departureDate,
+        nightsCount
+      });
+      
       if (!reservation.arrivalDate || !reservation.departureDate) {
         if (nightsCount > 0) {
           return `Reservation (${nightsCount} nights)`;
@@ -260,18 +345,49 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
       }
       
       let arrival, departure;
+      let arrivalMonth, arrivalDay, departureMonth, departureDay;
       
       // Handle case where dates are already Date objects
       if (reservation.arrivalDate instanceof Date) {
         arrival = reservation.arrivalDate;
+        console.log("Using arrival Date object directly:", arrival);
+        // Extract UTC date parts
+        arrivalMonth = arrival.getUTCMonth();
+        arrivalDay = arrival.getUTCDate();
+      } else if (typeof reservation.arrivalDate === 'string') {
+        // Use parseISO to preserve exact date without timezone conversion
+        arrival = parseISO(reservation.arrivalDate);
+        console.log("Parsed arrival date from string:", {
+          original: reservation.arrivalDate,
+          parsed: arrival
+        });
+        // Extract UTC date parts
+        arrivalMonth = arrival.getUTCMonth();
+        arrivalDay = arrival.getUTCDate();
       } else {
-        arrival = new Date(reservation.arrivalDate);
+        console.log("Invalid arrival date format in formatDateRange");
+        return `Reservation (${nightsCount} nights)`;
       }
       
       if (reservation.departureDate instanceof Date) {
         departure = reservation.departureDate;
+        console.log("Using departure Date object directly:", departure);
+        // Extract UTC date parts
+        departureMonth = departure.getUTCMonth();
+        departureDay = departure.getUTCDate();
+      } else if (typeof reservation.departureDate === 'string') {
+        // Use parseISO to preserve exact date without timezone conversion
+        departure = parseISO(reservation.departureDate);
+        console.log("Parsed departure date from string:", {
+          original: reservation.departureDate,
+          parsed: departure
+        });
+        // Extract UTC date parts
+        departureMonth = departure.getUTCMonth();
+        departureDay = departure.getUTCDate();
       } else {
-        departure = new Date(reservation.departureDate);
+        console.log("Invalid departure date format in formatDateRange");
+        return `Reservation (${nightsCount} nights)`;
       }
       
       // Check if dates are valid
@@ -280,12 +396,25 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
         return `Reservation (${nightsCount} nights)`;
       }
       
+      // Get month names
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      
+      console.log("formatDateRange processed dates:", {
+        arrival: `${monthNames[arrivalMonth]} ${arrivalDay}`,
+        departure: `${monthNames[departureMonth]} ${departureDay}`
+      });
+      
       // If same month, show "Month StartDay – EndDay (X nights)"
-      if (arrival.getMonth() === departure.getMonth()) {
-        return `${format(arrival, 'MMM d')} – ${format(departure, 'd')} (${nightsCount} nights)`;
+      if (arrivalMonth === departureMonth) {
+        const result = `${monthNames[arrivalMonth]} ${arrivalDay} – ${departureDay} (${nightsCount} nights)`;
+        console.log("Same month format:", result);
+        return result;
       }
+      
       // If different months, show "StartMonth StartDay – EndMonth EndDay (X nights)"
-      return `${format(arrival, 'MMM d')} – ${format(departure, 'MMM d')} (${nightsCount} nights)`;
+      const result = `${monthNames[arrivalMonth]} ${arrivalDay} – ${monthNames[departureMonth]} ${departureDay} (${nightsCount} nights)`;
+      console.log("Different month format:", result);
+      return result;
     } catch (error) {
       console.error(`Error in formatDateRange: ${error.message}`);
       return `Reservation (${nightsCount} nights)`;
@@ -293,6 +422,25 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
   };
 
   const dateRange = formatDateRange();
+
+  // Debug date values
+  console.log("RESERVATION DATES RECEIVED IN MODAL:", {
+    arrivalDate: {
+      value: reservation.arrivalDate,
+      type: typeof reservation.arrivalDate,
+      isDate: reservation.arrivalDate instanceof Date
+    },
+    departureDate: {
+      value: reservation.departureDate,
+      type: typeof reservation.departureDate,
+      isDate: reservation.departureDate instanceof Date
+    },
+    bookingDate: {
+      value: reservation.bookingDate,
+      type: typeof reservation.bookingDate,
+      isDate: reservation.bookingDate instanceof Date
+    }
+  });
 
   return (
     <Modal

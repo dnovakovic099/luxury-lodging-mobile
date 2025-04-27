@@ -24,12 +24,17 @@ import ReservationsTable from '../components/ReservationsTable';
 import DateRangePicker from '../components/DateRangePicker';
 import { theme as defaultTheme } from '../theme';
 import { useTheme } from '../context/ThemeContext';
-import { format, startOfDay, isSameDay } from 'date-fns';
+import { format, startOfDay, isSameDay, parseISO } from 'date-fns';
 
 // Cache key for calendar bookings
 const CALENDAR_BOOKINGS_CACHE = 'cache_calendar_bookings';
 // Debug flag for cache logging
 const DEBUG_CACHE = false; // Disable debug logs
+
+// Flag to enable time zone handling for listing location
+const USE_LISTING_TIMEZONE = true;
+// Default timezone offset for most US listing locations (if exact timezone not available)
+const DEFAULT_LISTING_TIMEZONE_OFFSET = -5 * 60; // -5 hours for EST in minutes
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DAY_CELL_SIZE = Math.floor(SCREEN_WIDTH / 7);
@@ -68,6 +73,9 @@ const CalendarScreen = ({ navigation }) => {
   // State for view toggle
   const [showCalendarView, setShowCalendarView] = useState(true);
   const { theme = defaultTheme } = useTheme();
+  
+  // Add loading state specifically for tab switching
+  const [switchingView, setSwitchingView] = useState(false);
   
   // Calendar state
   const { listings } = useAuth();
@@ -154,9 +162,10 @@ const CalendarScreen = ({ navigation }) => {
     const scrollToCurrentMonth = () => {
       if (allMonths.length > 0 && scrollViewRef.current && currentMonthIndex > 0) {
         setTimeout(() => {
-          const monthHeight = 450;
+          // Use centered calculation here too
+          const scrollPosition = calculateCenteredScrollPosition();
           scrollViewRef.current.scrollTo({
-            y: currentMonthIndex * monthHeight,
+            y: scrollPosition,
             animated: false
           });
         }, 150);
@@ -270,9 +279,6 @@ const CalendarScreen = ({ navigation }) => {
   const fetchReservations = async () => {
     if (!selectedProperty) return;
     
-    // Benchmark the fetch operation if debug is enabled
-    const startTime = DEBUG_CACHE ? Date.now() : 0;
-    
     // Only show full page loading if we don't have cached data
     const shouldShowLoading = !bookingsFromCache;
     if (shouldShowLoading) {
@@ -280,8 +286,6 @@ const CalendarScreen = ({ navigation }) => {
     }
     
     try {
-      if (DEBUG_CACHE) console.log('Calendar: Starting reservation fetch for property', selectedProperty);
-      
       // Calculate date range for 6 months before and after
       const today = new Date();
       
@@ -297,6 +301,11 @@ const CalendarScreen = ({ navigation }) => {
       const fromDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
       const toDateStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
       
+      // Find the selected listing to get its timezone if available
+      const selectedListing = listings?.find(listing => listing.id.toString() === selectedProperty);
+      // Get timezone offset from the listing or use default
+      const listingTimezoneOffset = selectedListing?.timezoneOffset || DEFAULT_LISTING_TIMEZONE_OFFSET;
+      
       // Prepare params for API call
       const params = {
         listingMapIds: [selectedProperty],
@@ -309,27 +318,8 @@ const CalendarScreen = ({ navigation }) => {
       // Fetch reservations from API
       const result = await getReservationsWithFinancialData(params);
       
-      if (DEBUG_CACHE) {
-        const fetchTime = Date.now() - startTime;
-        console.log(`Calendar: API fetch completed in ${fetchTime}ms`);
-      }
-      
-      // Count reservations by status for debugging
-      const statusCounts = {};
+      // Transform API data to our booking format with strict status and date filtering
       if (result?.reservations && Array.isArray(result.reservations)) {
-        if (DEBUG_CACHE) {
-          // Count by status for debugging
-          result.reservations.forEach(res => {
-            const status = res.status || 'unknown';
-            statusCounts[status] = (statusCounts[status] || 0) + 1;
-          });
-          console.log('Calendar: Reservation status counts:', statusCounts);
-        }
-        
-        // Transform processing start time
-        const transformStart = DEBUG_CACHE ? Date.now() : 0;
-        
-        // Transform API data to our booking format with strict status and date filtering
         const transformedBookings = result.reservations
           .filter(res => {
             // Validate that we have both arrival and departure dates
@@ -358,14 +348,32 @@ const CalendarScreen = ({ navigation }) => {
               return null;
             }
             
-            // Parse dates safely and adjust for display
+            // Parse dates and properly handle timezone
             const startDate = new Date(arrivalDate);
-            
-            // Add one day to the start date to fix the display issue
-            const adjustedStartDate = new Date(startDate);
-            adjustedStartDate.setDate(adjustedStartDate.getDate() + 1);
-            
             const endDate = new Date(departureDate);
+            
+            // Create a date that uses the listing's timezone instead of local timezone
+            // This ensures the displayed date reflects the date at the listing location
+            let adjustedStartDate;
+            
+            if (USE_LISTING_TIMEZONE) {
+              // Handle timezone shift properly - get the date in the listing's timezone
+              // Don't add an arbitrary day - instead calculate the actual date in the property's timezone
+              adjustedStartDate = new Date(startDate);
+              
+              // Only apply timezone adjustment if timezone varies from the one used by the API
+              const localOffset = new Date().getTimezoneOffset();
+              const offsetDiff = localOffset - listingTimezoneOffset;
+              
+              if (offsetDiff !== 0) {
+                // Apply the timezone difference to get the date as it appears at the listing location
+                adjustedStartDate.setMinutes(adjustedStartDate.getMinutes() + offsetDiff);
+              }
+            } else {
+              // Old behavior - add one day (keeping for backward compatibility but should not be used)
+              adjustedStartDate = new Date(startDate);
+              adjustedStartDate.setDate(adjustedStartDate.getDate() + 1);
+            }
             
             // Validate dates are valid
             if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
@@ -450,12 +458,6 @@ const CalendarScreen = ({ navigation }) => {
           })
           .filter(booking => booking !== null);
         
-        if (DEBUG_CACHE) {
-          const transformTime = Date.now() - transformStart;
-          console.log(`Calendar: Data transformation completed in ${transformTime}ms`);
-          console.log(`Calendar: Transformed ${transformedBookings.length} valid bookings`);
-        }
-        
         setBookings(transformedBookings);
         
         // Save to cache after successful fetch
@@ -464,11 +466,10 @@ const CalendarScreen = ({ navigation }) => {
         }
       } else {
         // Handle no reservations or invalid response
-        if (DEBUG_CACHE) console.log('Calendar: No reservations returned from API or invalid response');
         setBookings([]);
       }
     } catch (error) {
-      console.error('Calendar: Error fetching reservations:', error);
+      console.error('Error fetching reservations:', error);
       
       // If we have no cached data or fetching failed, set empty bookings
       if (!bookingsFromCache) {
@@ -477,11 +478,6 @@ const CalendarScreen = ({ navigation }) => {
     } finally {
       // Always set loading to false when fetch completes
       setIsLoading(false);
-      
-      if (DEBUG_CACHE) {
-        const totalTime = Date.now() - startTime;
-        console.log(`Calendar: Total fetch & processing completed in ${totalTime}ms`);
-      }
     }
   };
 
@@ -561,8 +557,25 @@ const CalendarScreen = ({ navigation }) => {
     if (!date || !bookings || !Array.isArray(bookings)) return null;
     
     try {
+      // Find the selected listing to get its timezone if available
+      const selectedListing = listings?.find(listing => listing.id.toString() === selectedProperty);
+      // Get timezone offset from the listing or use default
+      const listingTimezoneOffset = selectedListing?.timezoneOffset || DEFAULT_LISTING_TIMEZONE_OFFSET;
+      
       // Convert the date to midnight for comparison
       const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      
+      // If timezone handling is enabled, adjust the target date to the listing's timezone
+      if (USE_LISTING_TIMEZONE) {
+        const localOffset = new Date().getTimezoneOffset();
+        const offsetDiff = localOffset - listingTimezoneOffset;
+        
+        if (offsetDiff !== 0) {
+          // No need to adjust the target date since it's already in local time
+          // We'll adjust the booking dates instead when comparing
+        }
+      }
+      
       const targetTime = targetDate.getTime();
       
       // Find all bookings that include this date, then sort them so we prioritize display
@@ -574,7 +587,7 @@ const CalendarScreen = ({ navigation }) => {
           return false;
         }
         
-        // Create dates at midnight for comparison
+        // Create dates at midnight for comparison - these are already adjusted for timezone in fetchReservations
         const bookingStart = new Date(
           booking.startDate.getFullYear(), 
           booking.startDate.getMonth(), 
@@ -623,6 +636,8 @@ const CalendarScreen = ({ navigation }) => {
       // Create dates at midnight for comparison
       const currentDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
       
+      // These booking dates have already been adjusted for timezone in the fetchReservations function
+      // So we only need to extract the date components without further adjustment
       const startDate = new Date(
         booking.startDate.getFullYear(),
         booking.startDate.getMonth(), 
@@ -857,8 +872,6 @@ const CalendarScreen = ({ navigation }) => {
   // Optimize bookings processing by reducing unnecessary operations
   const loadBookingsFromCache = async () => {
     try {
-      if (DEBUG_CACHE) console.log('Calendar: Attempting to load bookings from cache...');
-      
       // Create a cache key that includes the property id
       const cacheKey = `${CALENDAR_BOOKINGS_CACHE}_${selectedProperty}`;
       
@@ -866,22 +879,38 @@ const CalendarScreen = ({ navigation }) => {
       const cachedBookings = await loadFromCache(cacheKey);
       
       if (!cachedBookings || !Array.isArray(cachedBookings) || cachedBookings.length === 0) {
-        if (DEBUG_CACHE) console.log('Calendar: No valid bookings in cache');
         return false;
       }
       
-      if (DEBUG_CACHE) {
-        console.log('Calendar: Loaded bookings from cache successfully');
-        console.log('Calendar: Cached bookings count:', cachedBookings.length);
-      }
+      // Find the selected listing to get its timezone if available
+      const selectedListing = listings?.find(listing => listing.id.toString() === selectedProperty);
+      // Get timezone offset from the listing or use default
+      const listingTimezoneOffset = selectedListing?.timezoneOffset || DEFAULT_LISTING_TIMEZONE_OFFSET;
       
       // Convert all date strings to Date objects in a single pass
-      // This is faster than batch processing with setTimeout delays
-      const fixedBookings = cachedBookings.map(booking => ({
-        ...booking,
-        startDate: booking.startDate ? new Date(booking.startDate) : null,
-        endDate: booking.endDate ? new Date(booking.endDate) : null
-      }));
+      const fixedBookings = cachedBookings.map(booking => {
+        // Create date objects from strings
+        const startDate = booking.startDate ? new Date(booking.startDate) : null;
+        const endDate = booking.endDate ? new Date(booking.endDate) : null;
+        
+        // If timezone handling is enabled, apply the listing timezone offset
+        if (USE_LISTING_TIMEZONE && startDate) {
+          // Only apply timezone adjustment if timezone varies from the one used by the API
+          const localOffset = new Date().getTimezoneOffset();
+          const offsetDiff = localOffset - listingTimezoneOffset;
+          
+          if (offsetDiff !== 0) {
+            // Apply the timezone difference to get the date as it appears at the listing location
+            startDate.setMinutes(startDate.getMinutes() + offsetDiff);
+          }
+        }
+        
+        return {
+          ...booking,
+          startDate,
+          endDate
+        };
+      });
       
       // Validate that we have proper date objects
       const hasValidBookings = fixedBookings.some(booking => 
@@ -892,7 +921,6 @@ const CalendarScreen = ({ navigation }) => {
       );
       
       if (!hasValidBookings) {
-        if (DEBUG_CACHE) console.log('Calendar: Cache exists but dates are invalid after parsing');
         return false;
       }
       
@@ -904,10 +932,9 @@ const CalendarScreen = ({ navigation }) => {
       // Update state with cached bookings immediately
       setBookings(fixedBookings);
       
-      if (DEBUG_CACHE) console.log('Calendar: Successfully set bookings from cache');
       return true;
     } catch (error) {
-      console.error('Calendar: Error loading bookings from cache:', error);
+      console.error('Error loading bookings from cache:', error);
       return false;
     }
   };
@@ -916,47 +943,22 @@ const CalendarScreen = ({ navigation }) => {
   const saveBookingsToCache = async () => {
     try {
       if (!selectedProperty || !bookings || !Array.isArray(bookings) || bookings.length === 0) {
-        if (DEBUG_CACHE) console.log('Calendar: Not saving bookings to cache - invalid data');
         return;
       }
-      
-      if (DEBUG_CACHE) console.log('Calendar: Saving bookings to cache...');
       
       // Create a cache key that includes the property id
       const cacheKey = `${CALENDAR_BOOKINGS_CACHE}_${selectedProperty}`;
       
       // Save to cache with the proper key
       await saveToCache(cacheKey, bookings);
-      
-      if (DEBUG_CACHE) console.log('Calendar: Saved bookings to cache successfully');
     } catch (error) {
-      console.error('Calendar: Error saving bookings to cache:', error);
+      console.error('Error saving bookings to cache:', error);
     }
   };
 
   // Handle booking click to show reservation details
   const handleBookingClick = (booking) => {
     if (!booking) return;
-    
-    // Debug logging for financial data
-    console.log('RAW BOOKING FINANCIAL DATA:', {
-      // Direct properties
-      baseRate: booking.baseRate,
-      cleaningFee: booking.cleaningFee,
-      ownerPayout: booking.ownerPayout,
-      processingFee: booking.processingFee,
-      channelFee: booking.channelFee,
-      hostChannelFee: booking.hostChannelFee,
-      managementFee: booking.managementFee,
-      pmCommission: booking.pmCommission,
-      
-      // Nested data
-      hasFinancialData: !!booking.financialData,
-      financialData_baseRate: booking.financialData?.baseRate,
-      financialData_cleaningFeeValue: booking.financialData?.cleaningFeeValue,
-      financialData_paymentProcessing: booking.financialData?.PaymentProcessing,
-      financialData_managementFee: booking.financialData?.managementFee
-    });
     
     // Process financial data properly - similar to ReservationsScreen approach
     const extractFinancialData = () => {
@@ -1070,16 +1072,6 @@ const CalendarScreen = ({ navigation }) => {
       financialData: booking.financialData || null,
     };
     
-    // Log the processed financial data
-    console.log('PROCESSED FINANCIAL DATA:', {
-      baseRate: reservation.baseRate,
-      cleaningFee: reservation.cleaningFee,
-      processingFee: reservation.processingFee,
-      channelFee: reservation.channelFee,
-      managementFee: reservation.managementFee,
-      hostPayout: reservation.hostPayout
-    });
-    
     // Set the selected reservation and show the modal
     setSelectedReservation(reservation);
     setModalVisible(true);
@@ -1170,8 +1162,6 @@ const CalendarScreen = ({ navigation }) => {
           return hasArrival && hasDeparture && hasValidStatus;
         });
         
-        console.log(`Filtered ${result.reservations.length} reservations down to ${filteredReservations.length} with valid statuses`);
-        
         setReservations(filteredReservations);
         // Apply initial sort when loading data
         setFilteredReservations(sortReservations(filteredReservations, sortBy));
@@ -1187,14 +1177,37 @@ const CalendarScreen = ({ navigation }) => {
   const sortReservations = (reservationsToSort, sortType) => {
     if (!reservationsToSort || !reservationsToSort.length) return [];
     
-    console.log(`Sorting ${reservationsToSort.length} reservations by ${sortType}`);
-    
     return [...reservationsToSort].sort((a, b) => {
       if (sortType === 'date') {
-        // Sort by arrival date (newest first)
-        const dateA = new Date(a.arrivalDate || a.checkInDate || 0);
-        const dateB = new Date(b.arrivalDate || b.checkInDate || 0);
-        return dateB - dateA;
+        // Get date strings for consistent comparison
+        let dateStrA, dateStrB;
+        
+        try {
+          // Get arrival date or check-in date value for A
+          const dateValueA = a.arrivalDate || a.checkInDate;
+          if (dateValueA instanceof Date) {
+            dateStrA = format(dateValueA, 'yyyy-MM-dd');
+          } else if (typeof dateValueA === 'string') {
+            dateStrA = format(new Date(dateValueA), 'yyyy-MM-dd');
+          } else {
+            dateStrA = '0000-00-00'; // Default for invalid date
+          }
+          
+          // Get arrival date or check-in date value for B
+          const dateValueB = b.arrivalDate || b.checkInDate;
+          if (dateValueB instanceof Date) {
+            dateStrB = format(dateValueB, 'yyyy-MM-dd');
+          } else if (typeof dateValueB === 'string') {
+            dateStrB = format(new Date(dateValueB), 'yyyy-MM-dd');
+          } else {
+            dateStrB = '0000-00-00'; // Default for invalid date
+          }
+        } catch (error) {
+          return 0;
+        }
+        
+        // Sort in descending order (newest first)
+        return dateStrB.localeCompare(dateStrA);
       } else {
         // Sort by amount (highest first)
         // Get the owner payout amount with more robust parsing
@@ -1223,14 +1236,12 @@ const CalendarScreen = ({ navigation }) => {
   // Update the handleSort function to force a re-render after sorting
   const handleSort = () => {
     const newSortBy = sortBy === 'date' ? 'amount' : 'date';
-    console.log(`Changing sort from ${sortBy} to ${newSortBy}`);
     
     // First update the sort type
     setSortBy(newSortBy);
     
     // Then immediately sort the current filtered reservations with the new sort type
     const newlySorted = sortReservations([...filteredReservations], newSortBy);
-    console.log(`Sorted reservations, new length: ${newlySorted.length}`);
     
     // Update state with sorted reservations to trigger re-render
     setFilteredReservations(newlySorted);
@@ -1244,18 +1255,55 @@ const CalendarScreen = ({ navigation }) => {
     let filtered = reservations.filter(reservation => {
       if (!reservation.arrivalDate && !reservation.checkInDate) return false;
       
-      const arrivalDate = new Date(reservation.arrivalDate || reservation.checkInDate);
+      // Get the arrival date value
+      const arrivalDateValue = reservation.arrivalDate || reservation.checkInDate;
+      
+      // Convert arrival date to string format for consistent comparison
+      let arrivalDateStr;
+      
+      if (arrivalDateValue instanceof Date) {
+        // For Date objects, use UTC date parts to create the string
+        arrivalDateStr = format(arrivalDateValue, 'yyyy-MM-dd');
+      } else if (typeof arrivalDateValue === 'string') {
+        // For strings like "2025-04-27", preserve the date exactly as is without timezone conversion
+        // Test if it's a YYYY-MM-DD format
+        if (/^\d{4}-\d{2}-\d{2}$/.test(arrivalDateValue)) {
+          // If already in YYYY-MM-DD format, use directly
+          arrivalDateStr = arrivalDateValue;
+        } else {
+          // Try to extract the correct date parts using parseISO
+          try {
+            const parsedDate = parseISO(arrivalDateValue);
+            // Use UTC components to avoid timezone shifts
+            const year = parsedDate.getUTCFullYear();
+            const month = String(parsedDate.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(parsedDate.getUTCDate()).padStart(2, '0');
+            arrivalDateStr = `${year}-${month}-${day}`;
+          } catch (e) {
+            return false;
+          }
+        }
+      } else {
+        return false;
+      }
       
       if (start && end) {
-        return arrivalDate >= start && arrivalDate <= end;
+        // Convert start and end dates to strings for comparison
+        const startStr = format(start, 'yyyy-MM-dd');
+        const endStr = format(end, 'yyyy-MM-dd');
+        
+        // Compare strings directly to avoid timezone issues
+        return arrivalDateStr >= startStr && arrivalDateStr <= endStr;
       } else if (start) {
-        return arrivalDate >= start;
+        // Convert start date to string for comparison
+        const startStr = format(start, 'yyyy-MM-dd');
+        
+        // Compare strings directly to avoid timezone issues
+        return arrivalDateStr >= startStr;
       }
       
       return true;
     });
-
-    console.log(`Filtered ${reservations.length} reservations to ${filtered.length} by date range`);
     
     // Then sort the filtered results
     return sortReservations(filtered, sortBy);
@@ -1335,6 +1383,70 @@ const CalendarScreen = ({ navigation }) => {
     );
   };
 
+  // Add a function to calculate scroll position that centers on today's date
+  const calculateCenteredScrollPosition = () => {
+    if (allMonths.length === 0 || currentMonthIndex < 0) return 0;
+    
+    // Constants for calculation
+    const monthHeight = 450;
+    const screenHeight = Dimensions.get('window').height - 200; // Approximate visible area
+    
+    // Base position for the current month
+    let basePosition = currentMonthIndex * monthHeight;
+    
+    // Calculate day offset within the month (to scroll proportionally)
+    const currentDay = today.getDate();
+    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    
+    // Calculate how far into the month we are (0-1 value)
+    const monthProgress = (currentDay - 1) / daysInMonth;
+    
+    // Add offset based on day position in month
+    // This will scroll further down if the date is later in the month
+    const dayOffset = monthHeight * monthProgress;
+    
+    // Calculate final position that centers today's date
+    // Subtract half of screen height to center
+    let scrollPosition = basePosition + dayOffset - (screenHeight / 2);
+    
+    // Don't allow negative scroll position
+    return Math.max(0, scrollPosition);
+  };
+
+  // Update handleViewChange function to use the centered scroll position
+  const handleViewChange = (showCalendar) => {
+    // If switching to calendar and we're currently in reservations view
+    if (showCalendar && !showCalendarView) {
+      // First show loading indicator
+      setSwitchingView(true);
+      
+      // Set a small delay to ensure clean view transition
+      setTimeout(() => {
+        setShowCalendarView(true);
+        
+        // Give it another small delay to ensure smooth rendering
+        setTimeout(() => {
+          setSwitchingView(false);
+          
+          // Now scroll to the calculated position that centers today's date
+          if (allMonths.length > 0 && scrollViewRef.current && currentMonthIndex > 0) {
+            setTimeout(() => {
+              // Use centered calculation instead of just the month top
+              const scrollPosition = calculateCenteredScrollPosition();
+              scrollViewRef.current.scrollTo({
+                y: scrollPosition,
+                animated: false
+              });
+            }, 50);
+          }
+        }, 50);
+      }, 50);
+    } else {
+      // For switching to reservations, no delay needed
+      setShowCalendarView(showCalendar);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
@@ -1375,7 +1487,7 @@ const CalendarScreen = ({ navigation }) => {
               styles.segmentButton, 
               showCalendarView ? styles.activeSegment : null
             ]}
-            onPress={() => setShowCalendarView(true)}
+            onPress={() => handleViewChange(true)}
           >
             <Text style={[
               styles.segmentText, 
@@ -1388,7 +1500,7 @@ const CalendarScreen = ({ navigation }) => {
               styles.segmentButton, 
               !showCalendarView ? styles.activeSegment : null
             ]}
-            onPress={() => setShowCalendarView(false)}
+            onPress={() => handleViewChange(false)}
           >
             <Text style={[
               styles.segmentText, 
@@ -1427,11 +1539,11 @@ const CalendarScreen = ({ navigation }) => {
       )}
       
       {/* Show either Calendar or Reservations view */}
-      {(isLoading && !bookingsFromCache) ? (
+      {(isLoading && !bookingsFromCache) || switchingView ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#FF385C" />
           <Text style={styles.loadingText}>
-            Loading {showCalendarView ? 'reservations' : 'data'}...
+            Loading {showCalendarView ? 'calendar' : 'reservations'}...
           </Text>
         </View>
       ) : (
@@ -1546,7 +1658,7 @@ const styles = StyleSheet.create({
   segmentText: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#666',
+    color: '#222',
   },
   activeSegmentText: {
     color: '#FF385C',
@@ -1622,7 +1734,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   todayCell: {
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: '#FF385C',
   },
   emptyDay: {
@@ -1742,7 +1854,7 @@ const styles = StyleSheet.create({
     pointerEvents: 'none',
   },
   amountOnlyText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
     color: 'white',
     textShadowColor: 'rgba(0, 0, 0, 0.3)',
@@ -1791,7 +1903,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 15,
-    paddingVertical: 14,
+    paddingVertical: 10,
     backgroundColor: '#f8f8f8',
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
@@ -1799,31 +1911,31 @@ const styles = StyleSheet.create({
   dateFilterButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 10,
+    padding: 8,
     backgroundColor: '#fff',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E0E0E0',
-    minWidth: 180,
+    minWidth: 160,
   },
   dateFilterText: {
-    marginLeft: 8,
-    fontSize: 14,
+    marginLeft: 6,
+    fontSize: 13,
     color: '#333',
   },
   sortButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 10,
+    padding: 8,
     backgroundColor: '#fff',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E0E0E0',
-    minWidth: 120,
+    minWidth: 100,
   },
   sortText: {
-    marginLeft: 8,
-    fontSize: 14,
+    marginLeft: 6,
+    fontSize: 13,
     color: '#333',
     fontWeight: '500',
   },
@@ -1862,6 +1974,14 @@ const styles = StyleSheet.create({
   monthPickerTextSelected: {
     fontWeight: '600',
     color: '#FF385C',
+  },
+  fullScreenView: {
+    flex: 1,
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+  },
+  scrollViewContent: {
+    paddingBottom: 20,
   },
 });
 

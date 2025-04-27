@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -18,13 +18,20 @@ import { format, differenceInDays } from 'date-fns';
 import { parseISO } from 'date-fns';
 import { LinearGradient } from 'react-native-linear-gradient';
 
-// Define gold colors for consistency
+// Define dark blue colors instead of gold for consistency
 const GOLD = {
-  primary: '#B6944C',
-  secondary: '#DCBF78',
-  light: 'rgba(182, 148, 76, 0.15)',
-  gradient: '#D4AF37',
-  border: 'rgba(182, 148, 76, 0.4)'
+  primary: '#0A3D62', // Changed from gold to dark blue
+  secondary: '#3282B8', // Lighter blue
+  light: 'rgba(10, 61, 98, 0.15)', // Dark blue with opacity
+  gradient: '#1B6CA8', // Medium blue
+  border: 'rgba(10, 61, 98, 0.4)' // Dark blue border with opacity
+};
+
+// Define colors for channels
+const CHANNEL_COLORS = {
+  airbnb: '#FF5A5F', // Airbnb red
+  vrbo: '#3D91FF',   // VRBO blue
+  luxurylodging: '#B6944C' // Gold for Luxury Lodging
 };
 
 const { width } = Dimensions.get('window');
@@ -138,16 +145,16 @@ const ReservationCard = ({ item, onPress, index }) => {
   
   // Handle channel display with custom formatting
   const rawChannelName = item?.channelName || item?.channel || findNestedProperty(item, 'channelName') || findNestedProperty(item, 'channel') || '';
-  let channelText = 'Direct';
-  let channelColor = GOLD.primary; // Gold by default
+  let channelText = 'Luxury Lodging'; // Changed from 'Direct' to 'Luxury Lodging'
+  let channelColor = '#B6944C'; // Gold color for Luxury Lodging
   
   const channelLower = rawChannelName.toLowerCase();
   if (channelLower.includes('airbnb')) {
     channelText = 'Airbnb';
-    channelColor = '#FF5A5F'; // Airbnb red
+    channelColor = CHANNEL_COLORS.airbnb;
   } else if (channelLower.includes('vrbo') || channelLower.includes('homeaway')) {
     channelText = 'Vrbo';
-    channelColor = '#3D91FF'; // Vrbo blue
+    channelColor = CHANNEL_COLORS.vrbo;
   }
   
   // Extract financial data with no defaults
@@ -164,18 +171,26 @@ const ReservationCard = ({ item, onPress, index }) => {
     const departureDateString = item?.checkOut || item?.departureDate || item?.departure || findNestedProperty(item, 'checkOut') || findNestedProperty(item, 'departureDate');
     
     if (arrivalDateString) {
-      checkInDate = new Date(arrivalDateString);
+      if (arrivalDateString instanceof Date) {
+        checkInDate = arrivalDateString;
+      } else if (typeof arrivalDateString === 'string') {
+        checkInDate = parseISO(arrivalDateString);
+      }
     }
     
     if (departureDateString) {
-      checkOutDate = new Date(departureDateString);
+      if (departureDateString instanceof Date) {
+        checkOutDate = departureDateString;
+      } else if (typeof departureDateString === 'string') {
+        checkOutDate = parseISO(departureDateString);
+      }
     }
     
     if (checkInDate && checkOutDate) {
       nights = differenceInDays(checkOutDate, checkInDate);
     }
   } catch (error) {
-    console.error("Error formatting dates:", error);
+    // Silently handle the error
   }
   
   // Default nights if calculation failed but we have a nights value
@@ -189,8 +204,8 @@ const ReservationCard = ({ item, onPress, index }) => {
   let statusColor = '#4CAF50'; // Green by default
   
   if (status === 'modified') {
-    statusText = 'Modified';
-    statusColor = '#FF9800'; // Orange
+    statusText = 'Confirmed'; // Changed from 'Modified' to 'Confirmed'
+    statusColor = '#4CAF50'; // Changed from orange to green
   } else if (status === 'ownerStay') {
     statusText = 'Owner Stay';
     statusColor = '#2196F3'; // Blue
@@ -202,7 +217,12 @@ const ReservationCard = ({ item, onPress, index }) => {
   // Format the dates in a nice way
   const formatCardDate = (date) => {
     if (!date) return '';
-    return format(date, 'MMM d, yyyy');
+    // If date is already a Date object, format it directly
+    if (date instanceof Date) {
+      return format(date, 'MMM d, yyyy');
+    }
+    // If it's a string, format it using parseISO to preserve the exact date without timezone adjustment
+    return format(parseISO(date), 'MMM d, yyyy');
   };
   
   // Get the first letter of the guest's name for the avatar
@@ -211,13 +231,34 @@ const ReservationCard = ({ item, onPress, index }) => {
     return guestName.charAt(0).toUpperCase();
   };
   
+  // Check if the check-in date is today
+  const isToday = () => {
+    if (!checkInDate) return false;
+    
+    const today = new Date();
+    return (
+      checkInDate.getDate() === today.getDate() &&
+      checkInDate.getMonth() === today.getMonth() &&
+      checkInDate.getFullYear() === today.getFullYear()
+    );
+  };
+  
+  // Update the border color logic to use channel colors
+  // Royal blue color for today's reservations - now using channel color
+  const todayHighlightColor = channelColor;
+  
+  // Border color based on arrival date and channel
+  const cardBorderColor = isToday() ? todayHighlightColor : channelColor;
+  const cardBorderWidth = isToday() ? 1 : 0.5; // Thinner border when not today
+  
   return (
     <Animated.View style={[
       styles.card,
       {
         opacity,
         transform: [{ translateY }, { scale }],
-        borderColor: GOLD.border // Thin gold border
+        borderColor: cardBorderColor,
+        borderWidth: cardBorderWidth
       }
     ]}>
       <TouchableOpacity 
@@ -252,7 +293,13 @@ const ReservationCard = ({ item, onPress, index }) => {
           <View style={styles.dateContainer}>
             <View style={styles.dateItem}>
               <Text style={styles.dateLabel}>CHECK-IN</Text>
-              <Text style={styles.dateValue}>{formatCardDate(checkInDate)}</Text>
+              <Text style={[
+                styles.dateValue, 
+                isToday() && { color: todayHighlightColor, fontWeight: '700' }
+              ]}>
+                {formatCardDate(checkInDate)}
+                {isToday() && ' (Today)'}
+              </Text>
             </View>
             
             <View style={styles.dateItem}>
@@ -288,29 +335,74 @@ const ReservationsTable = ({
   loading = false,
   onRowPress = () => {},
   onRefresh = () => {},
-  sortBy = 'date' // 'date' or 'revenue'
+  sortBy = 'date',
+  searchTerm = '',
+  statusFilter = 'all',
+  onReservationSelect,
+  compact = false,
+  presorted = false
 }) => {
-  // Sort the reservations based on the sortBy parameter
-  const sortedReservations = React.useMemo(() => {
-    if (!reservations || !reservations.length) return [];
-
-    console.log('reservations', reservations[0], sortBy);
-    
-    if (sortBy === 'revenue') {
-      return [...reservations].sort((a, b) => {
-        const aRevenue = parseNumber(a?.ownerPayout || findNestedProperty(a, 'ownerPayout') || 0);
-        const bRevenue = parseNumber(b?.ownerPayout || findNestedProperty(b, 'ownerPayout') || 0);
-        return bRevenue - aRevenue; // Descending order
-      });
-    } else {
-      // Default: sort by check-in date
-      return [...reservations].sort((a, b) => {
-        const aDate = new Date(a?.checkIn || a?.arrivalDate || a?.arrival || findNestedProperty(a, 'checkIn') || findNestedProperty(a, 'arrivalDate') || 0);
-        const bDate = new Date(b?.checkIn || b?.arrivalDate || b?.arrival || findNestedProperty(b, 'checkIn') || findNestedProperty(b, 'arrivalDate') || 0);
-        return aDate - bDate; // Ascending order (earliest first)
+  console.log(`[DEBUG] ReservationsTable rendered with sortBy=${sortBy}, reservations.length=${reservations.length}, presorted=${presorted}`);
+  
+  // Process and filter reservations
+  const processedReservations = useMemo(() => {
+    // Debug: Show sample of first 3 reservations before sorting
+    if (reservations.length > 0) {
+      console.log('[DEBUG] First 3 reservations BEFORE sorting:');
+      reservations.slice(0, 3).forEach((res, idx) => {
+        const dateStr = res.arrivalDate instanceof Date ? 
+          format(res.arrivalDate, 'yyyy-MM-dd') : 
+          (typeof res.arrivalDate === 'string' ? 
+            format(new Date(res.arrivalDate), 'yyyy-MM-dd') : 
+            (res.checkInDate || 'N/A'));
+        console.log(`[DEBUG] ${idx+1}. Property: ${res.propertyName || 'N/A'}, Date: ${dateStr}, Revenue: ${res.ownerPayout || 'N/A'}`);
       });
     }
-  }, [reservations, sortBy]);
+    
+    // Skip sorting if data comes in presorted
+    if (presorted) {
+      console.log('[DEBUG] Skipping internal sort - using presorted data');
+      return [...reservations]; // Return a copy to maintain immutability
+    }
+    
+    // Sort reservations but don't do any date filtering - that should be done by ReservationsScreen
+    let sorted = [...reservations];
+    
+    // Sort by the selected criteria
+    if (sortBy === 'revenue' || sortBy === 'amount') {
+      console.log('[DEBUG] Sorting by REVENUE in ReservationsTable');
+      sorted.sort((a, b) => {
+        const aRevenue = parseFloat(a.ownerPayout || 0);
+        const bRevenue = parseFloat(b.ownerPayout || 0);
+        return bRevenue - aRevenue; // Descending (highest first)
+      });
+    } else { // Default to date sorting
+      console.log('[DEBUG] Sorting by DATE in ReservationsTable');
+      // Sort by date (ascending - oldest first)
+      sorted = sorted.sort((a, b) => {
+        const dateA = new Date(a.arrivalDate || a.checkInDate || 0);
+        const dateB = new Date(b.arrivalDate || b.checkInDate || 0);
+        return dateA - dateB;
+      });
+    }
+    
+    // Debug: Show sample of first 3 reservations after sorting
+    if (sorted.length > 0) {
+      console.log('[DEBUG] First 3 reservations AFTER sorting:');
+      sorted.slice(0, 3).forEach((res, idx) => {
+        const dateStr = res.arrivalDate instanceof Date ? 
+          format(res.arrivalDate, 'yyyy-MM-dd') : 
+          (typeof res.arrivalDate === 'string' ? 
+            format(new Date(res.arrivalDate), 'yyyy-MM-dd') : 
+            (res.checkInDate || 'N/A'));
+        console.log(`[DEBUG] ${idx+1}. Property: ${res.propertyName || 'N/A'}, Date: ${dateStr}, Revenue: ${res.ownerPayout || 'N/A'}`);
+      });
+    }
+    
+    // Return the sorted reservations without any additional filtering
+    // This ensures ReservationsScreen's filtering is respected
+    return sorted;
+  }, [reservations, sortBy, presorted]);
 
   // Handle empty state
   if (!reservations || reservations.length === 0) {
@@ -334,7 +426,7 @@ const ReservationsTable = ({
   return (
     <View style={styles.container}>
       <FlatList
-        data={sortedReservations}
+        data={processedReservations}
         keyExtractor={(item) => item?.id?.toString() || Math.random().toString()}
         renderItem={({ item, index }) => (
           <ReservationCard 
@@ -449,7 +541,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   dateValue: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
     color: '#000000',
   },
@@ -489,7 +581,7 @@ const styles = StyleSheet.create({
   payoutValue: {
     fontSize: 16,
     fontWeight: '600',
-    color: GOLD.primary,
+    color: '#4CAF50', // Changed from GOLD.primary to green
   },
   separator: {
     height: 8,
