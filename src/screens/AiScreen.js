@@ -58,51 +58,6 @@ const GOLD = {
 // Replace with import from @env after setting up react-native-dotenv
 const API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyAl-qIvjTpvNY4_1Hh4SAywOJlcgY5A-xw';
 
-// Function to generate a prompt based on category
-const generatePrompt = (category) => {
-  console.log(`Generating prompt for category: ${category}`);
-  
-  if (category === 'all') {
-    return `Search specifically on Google News for 6 recent, verified news articles about short-term rentals, vacation properties, Airbnb, VRBO, and luxury vacation rental platforms from the past month.
-
-            IMPORTANT: ONLY return articles from Google News that have confirmed working URLs. 
-            
-            For each article, provide: 
-            1. The exact title as it appears on Google News
-            2. The actual publication date (must be within the last month)
-            3. A brief 2-3 sentence summary of the article
-            4. The category it best fits (market trends, regulations, investment opportunities, or industry news)
-            5. A relevance score (1-10) for luxury property owners
-            6. The EXACT, unmodified URL from Google News - do not create or modify the URLs
-            
-            IMPORTANT: Format your response ONLY as a valid JSON array without any introduction or explanation. Start with "[" and end with "]".
-            Each article object should have these properties:
-            title, date, summary, category, relevanceScore, url and imageType (assign one of these based on article content: "trend", "regulation", "investment", "news", "luxury", "beach", "mountain", "city", "modern", "interior")`;
-  } else {
-    return `Search specifically on Google News for 6 recent, verified news articles about ${category} related to luxury short-term rentals and vacation properties from the past month.
-            
-            IMPORTANT: ONLY return articles from Google News that have confirmed working URLs.
-            
-            For each article, provide: 
-            1. The exact title as it appears on Google News
-            2. The actual publication date (must be within the last month)
-            3. A brief 2-3 sentence summary of the article
-            4. A relevance score (1-10) for luxury property owners
-            5. The EXACT, unmodified URL from Google News - do not create or modify the URLs
-            
-            IMPORTANT: Format your response ONLY as a valid JSON array without any introduction or explanation. Start with "[" and end with "]".
-            Each article object should have these properties:
-            title, date, summary, category (which should be "${category}"), relevanceScore, url and imageType (assign one of these based on article content: "trend", "regulation", "investment", "news", "luxury", "beach", "mountain", "city", "modern", "interior")`;
-  }
-};
-
-// Function to get locations from properties
-const getLocations = () => {
-  // This would normally pull from your application state or storage
-  // For now returning a default array
-  return ['Miami', 'Aspen', 'Palm Springs', 'Hamptons', 'Los Angeles'];
-};
-
 // Helper function to get image URL based on article type
 const getImageForType = (type) => {
   switch (type?.toLowerCase()) {
@@ -187,7 +142,7 @@ const openURL = (url) => {
   }
 };
 
-// Helper function to fetch an image and convert it to base64
+// Clean up fetchImageAsBase64 function to be more concise
 const fetchImageAsBase64 = async (imageUrl) => {
   try {
     console.log(`Fetching image from URL: ${imageUrl}`);
@@ -199,8 +154,7 @@ const fetchImageAsBase64 = async (imageUrl) => {
     const downloadResult = await RNFS.downloadFile({
       fromUrl: imageUrl,
       toFile: tempFilePath,
-      background: false, // Set to true for large files
-      discretionary: true,
+      background: false,
       cacheable: true,
     }).promise;
     
@@ -210,7 +164,6 @@ const fetchImageAsBase64 = async (imageUrl) => {
     
     // Read the file as base64
     const base64Data = await RNFS.readFile(tempFilePath, 'base64');
-    console.log(`Successfully encoded image to base64, size: ${base64Data.length} characters`);
     
     // Clean up the temporary file
     await RNFS.unlink(tempFilePath);
@@ -222,7 +175,7 @@ const fetchImageAsBase64 = async (imageUrl) => {
   }
 };
 
-const AIReportScreen = ({ navigation }) => {
+const AiScreen = ({ navigation }) => {
   const { theme, isDarkMode } = useTheme();
   const { listings, user } = useAuth();
   const insets = useSafeAreaInsets();
@@ -544,6 +497,8 @@ Format your response with clear headings and bullet points for readability.`;
         model: "gemini-1.5-flash",
         systemInstruction: analysisType === 'listing' 
           ? "You are a luxury property optimization AI that helps owners improve their property listings. You analyze property images and data to provide actionable recommendations for enhancing appeal and bookability."
+          : analysisType === 'realestate'
+          ? "You are a real estate market analysis AI that provides detailed market insights, trends, and property valuation data. You analyze location data, comparable properties, and neighborhood metrics to deliver comprehensive market intelligence."
           : "You are a luxury property analysis AI that helps owners understand their reservation data and optimize their vacation rental business. You provide insightful, data-driven analysis and actionable recommendations.",
         safetySettings: [
           {
@@ -570,20 +525,53 @@ Format your response with clear headings and bullet points for readability.`;
         }
         
         // Create prompt for listing optimization
-        const listingPrompt = `As a luxury property optimization expert, analyze these images of "${listing.name || 'this property'}" and provide detailed feedback on:
+        const listingPrompt = `Role: You are an elite short-term rental (STR) strategist specializing in maximizing listing performance through image optimization.
+Task: Analyze the provided property images and deliver a highly actionable, guest psychology-driven evaluation.
+Focus: Drive improvements in search click-through rate, booking conversion rate, guest emotional engagement, and price justification — without needing property description context.
 
-1. Visual appeal and staging
-2. Photo quality and composition
-3. Highlighting of key amenities
-4. Areas for improvement
-5. Specific recommendations to enhance the listing's marketability
+Structure your analysis under the following clear sections:
+🖼️ 1. Hero Image & First Impressions
+- Is the hero image immediately compelling and differentiated in the booking platform feed?
+- How effectively do the first 3 images capture attention and communicate value?
+- Suggestions for improving first impression strength.
+
+🎯 2. Guest Emotional Activation
+- How successfully do the images trigger emotional buying drivers (relaxation, family bonding, adventure, luxury, escapism, etc.)?
+- Which emotional themes are missing or underutilized?
+- Scenes or emotional "moments" that could be added to increase emotional resonance.
+
+📈 3. Booking Conversion Power
+- How effectively do the images build guest trust (professionalism, cleanliness, quality)?
+- Are there any confusing, low-energy, or underwhelming photo sequences that could lower booking intent?
+- Recommendations to strengthen flow and storytelling to push guests toward booking.
+
+🏠 4. Amenity Highlighting & Value Reinforcement
+- Are all critical booking decision factors (gathering spaces, views, outdoor areas, entertainment, luxury touches) showcased clearly?
+- Which amenities or features need better emphasis?
+- Concrete ideas to visually reinforce nightly rate value.
+
+🏆 5. Market Differentiation & Target Guest Alignment
+- How well does the property visually differentiate itself from comparable options?
+- Is the target guest type (family getaway, large group, romantic retreat, etc.) clear based on the image sequence?
+- If unclear, suggest repositioning ideas through imagery.
+
+🧹 6. Missed Opportunities & Gaps
+- Key emotional, functional, or visual gaps in the current photo set.
+- Prioritized list of missed opportunities ranked by expected impact on booking likelihood.
+
+💡 7. Specific High-ROI Improvements
+- Staging, re-shooting, or sequencing actions that would likely produce the highest increase in CTR or booking conversions.
+- Specific recommended scenes (e.g., cozy firepit night, group meal setup, lakeside sunrise coffee moment).
+
+🍂 8. Seasonal or Thematic Enhancement Opportunities
+- Ideas for future seasonal or themed shoots (summer, fall, winter, spring) to maintain listing freshness and relevance.
 
 PROPERTY DETAILS:
 ${JSON.stringify(listing, null, 2)}
 
 ${userPrompt ? `Additional focus areas: ${userPrompt}` : ''}
 
-Format your response with clear section headers and actionable recommendations.`;
+Format your analysis with clear section headers and bullet points for maximum clarity and actionability. Focus on the guest perspective and provide specific, implementable recommendations.`;
 
         try {
           console.log('Preparing images for Gemini analysis...');
@@ -669,6 +657,71 @@ Format your response with clear section headers and actionable recommendations.`
             throw error;
           }
         }
+      } else if (analysisType === 'realestate') {
+        // For real estate market analysis
+        if (!listing || !listing.address) {
+          setError('No address available for this property');
+          setLoading(false);
+          return;
+        }
+        
+        // Create prompt for real estate market analysis
+        const realEstatePrompt = `
+        Role: You are a real estate investment and short-term rental (STR) strategy expert with access to market data.
+        
+        Task: Analyze the property below as both a real estate investment and a vacation rental opportunity.
+        
+        Property Details:
+        ${JSON.stringify({
+          // Include all available listing details
+          address: listing.address || 'Address not provided',
+          city: listing.city || (listing.address ? listing.address.split(',')[1]?.trim() : ''),
+          state: listing.state || (listing.address ? listing.address.split(',')[2]?.trim().split(' ')[0] : ''),
+          zip: listing.zipCode || (listing.address ? listing.address.match(/\d{5}(?:-\d{4})?/) : ''),
+          bedrooms: listing.bedrooms || 'Not specified',
+          bathrooms: listing.bathrooms || 'Not specified',
+          propertyType: listing.propertyType || 'Vacation Rental',
+          squareFeet: listing.squareFeet || listing.square_feet || listing.area || 'Not specified',
+          yearBuilt: listing.yearBuilt || listing.year_built || 'Not specified',
+          propertyFeatures: listing.features || listing.amenities || [],
+          maxGuests: listing.maxGuests || listing.maxOccupancy || listing.sleeps || 'Not specified',
+          beds: listing.beds || listing.bedCount || 'Not specified',
+          pricing: listing.pricing || listing.baseRate || listing.averagePrice || 'Not specified',
+          neighborhood: listing.neighborhood || 'Not specified',
+          latitude: listing.latitude || (listing.location ? listing.location.lat : null) || 'Not specified',
+          longitude: listing.longitude || (listing.location ? listing.location.lng : null) || 'Not specified',
+          name: listing.name || 'Not specified',
+          description: listing.description ? listing.description.substring(0, 300) + '...' : 'Not provided',
+        }, null, 2)}
+        
+        Please structure your analysis in two parts:
+        
+        🏡 Part 1: General Real Estate Analysis
+        • Neighborhood and surrounding area analysis (perceived desirability, safety, demand drivers)
+        • Estimated real estate value trends for this location (appreciating, stable, or declining)
+        • Suitability of this property size (${listing.bedrooms || '?'} bed/${listing.bathrooms || '?'} bath) for the local market
+        • Property value indicators for similar properties in the area
+        • Long-term investment potential (traditional rental, appreciation)
+        
+        🏖️ Part 2: Short-Term Rental (STR) Opportunity Analysis
+        • Likely guest profile based on property size (${listing.bedrooms || '?'} bed/${listing.bathrooms || '?'} bath) and location
+        • Estimated STR demand patterns (seasonality vs year-round potential)
+        • Key advantages this property offers as a vacation rental
+        • Potential challenges or risks (regulations, competition, market saturation)
+        • Recommendations to maximize STR revenue (pricing strategy, amenity additions, positioning)
+        • Performance optimization suggestions (guest experience, listing improvements)
+        
+        ${userPrompt ? `Additional areas of interest: ${userPrompt}` : ''}
+        
+        Important notes:
+        • If you don't have specific data for certain aspects, provide general insights based on similar markets or properties
+        • Focus on practical, revenue-driven analysis rather than theoretical observations
+        • If exact STR regulations aren't known, provide typical regulatory considerations for similar areas
+        
+        Format your analysis with clear headings and bullet points for readability.`;
+        
+        console.log('Sending comprehensive real estate and STR investment analysis request to Gemini API...');
+        result = await model.generateContent(realEstatePrompt);
       } else {
         // For reservation analysis, use existing implementation
         const reservations = await fetchReservations(selectedListing);
@@ -729,381 +782,311 @@ Format your response with clear section headers and actionable recommendations.`
     }
   };
   
-  // Format AI response with premium modern styling
-  const formatReport = (text) => {
+  // NEW REPORT DISPLAY CODE
+  // Create a completely redesigned report view
+  const renderNewReport = (text) => {
     if (!text) return null;
     
-    // Remove all asterisks from the text before processing
-    text = text.replace(/\*\*/g, '');
-    text = text.replace(/\*/g, '');
-    
-    // Parse sections similar to before
-    const sections = [];
-    let currentSection = { title: '', content: [] };
-    let inSection = false;
-    
-    text.split('\n').forEach((line, index) => {
-      if (line.startsWith('# ') || 
-          line.startsWith('## ') || 
-          /^[A-Z][A-Za-z\s]+:/.test(line) ||
-          line.match(/^(Summary|Key Insights|Recommendations|Analysis|Suggestions|Conclusion)/i)) {
+    try {
+      // Process the text to extract sections and content
+      const sections = [];
+      let currentSection = null;
+      let currentContent = [];
+      
+      // Split text into lines for processing
+      const lines = text.split('\n');
+      
+      // Process each line
+      lines.forEach(line => {
+        const trimmedLine = line.trim();
         
-        if (inSection && currentSection.title) {
-          sections.push({...currentSection});
-        }
-        
-        const title = line.replace(/^#+ /, '').replace(/:$/, '');
-        currentSection = { 
-          title: title, 
-          content: [],
-          icon: getSectionIcon(title),
-          type: getSectionType(title)
-        };
-        inSection = true;
-      } 
-      else if (inSection) {
-        if (line.trim() === '' && currentSection.content.length === 0) {
+        // Skip empty lines
+        if (trimmedLine === '') {
           return;
         }
-        currentSection.content.push(line);
+        
+        // Check if this line is a section header (uses emoji, numbers, or all caps words as indicators)
+        // Updated regex to detect section headers including with ** markers
+        const isSectionHeader = /^[🖼️📈🎯🏠🏆🧹💡🍂]?\s*\d*\.?\s*[A-Z][A-Za-z\s&\-]+(:)?/m.test(trimmedLine) || 
+                               /^(Summary|Key Insights|Recommendations|Analysis|Suggestions|Conclusion)/i.test(trimmedLine) ||
+                               /^\*\*.*\*\*$/.test(trimmedLine); // Match lines surrounded by **
+        
+        if (isSectionHeader) {
+          // Save previous section if it exists
+          if (currentSection && currentContent.length > 0) {
+            sections.push({
+              title: currentSection,
+              content: [...currentContent]
+            });
+          }
+          
+          // Clean up title: remove ** markers, numbers, emoji, etc.
+          let cleanedTitle = trimmedLine
+            .replace(/^\*\*|\*\*$/g, '') // Remove ** at start/end
+            .replace(/^[🖼️📈🎯🏠🏆🧹💡🍂]\s*/, '') // Remove emoji
+            .replace(/^\d+\.\s*/, '') // Remove numbering
+            .replace(/:$/, ''); // Remove trailing colon
+            
+          // Start new section
+          currentSection = cleanedTitle;
+          currentContent = [];
+        } else if (currentSection) {
+          // Clean up content lines - remove ** markers if present
+          currentContent.push(trimmedLine.replace(/\*\*/g, ''));
+        }
+      });
+      
+      // Add final section
+      if (currentSection && currentContent.length > 0) {
+        sections.push({
+          title: currentSection,
+          content: [...currentContent]
+        });
+      }
+      
+      // If no sections were found, create a single section with the entire text
+      if (sections.length === 0) {
+        sections.push({
+          title: 'Analysis',
+          content: lines.filter(line => line.trim() !== '')
+        });
+      }
+      
+      // Extract key metrics if any
+      const keyMetrics = extractMetricsFromText(text);
+      
+      return (
+        <View style={newStyles.reportContainer}>
+          {/* Metrics summary */}
+          {keyMetrics && renderNewMetricsView(keyMetrics)}
+          
+          {/* Content sections */}
+          {sections.map((section, index) => (
+            <View key={`section-${index}`} style={newStyles.sectionCard}>
+              <Text style={newStyles.sectionTitle}>{section.title}</Text>
+              <View style={newStyles.sectionContent}>
+                {processContentForDisplay(section.content)}
+              </View>
+            </View>
+          ))}
+        </View>
+      );
+    } catch (error) {
+      console.error('Error rendering report:', error);
+      // Fallback to simple text display
+      return (
+        <View style={newStyles.reportContainer}>
+          <View style={newStyles.sectionCard}>
+            <Text style={newStyles.sectionTitle}>Analysis</Text>
+            <Text style={newStyles.paragraph}>{text}</Text>
+          </View>
+        </View>
+      );
+    }
+  };
+  
+  // Process content for better display
+  const processContentForDisplay = (contentLines) => {
+    // Organize content into blocks (paragraphs, lists, etc.)
+    const contentBlocks = [];
+    let currentBlock = { type: 'paragraph', content: [] };
+    
+    contentLines.forEach(line => {
+      // Clean up line, remove ** markers
+      let cleanedLine = line.replace(/\*\*/g, '');
+      
+      // Check if line is a bullet point
+      if (cleanedLine.startsWith('- ') || cleanedLine.startsWith('* ') || cleanedLine.startsWith('• ')) {
+        // If we were building a different type of block, save it and start a new bullet list
+        if (currentBlock.type !== 'bullet' && currentBlock.content.length > 0) {
+          contentBlocks.push({...currentBlock});
+          currentBlock = { type: 'bullet', content: [] };
+        } else if (currentBlock.type !== 'bullet') {
+          currentBlock.type = 'bullet';
+        }
+        
+        // Add bullet content without the marker
+        currentBlock.content.push(cleanedLine.replace(/^[\s-*•]+/, '').trim());
+      }
+      // Check if line is a numbered point
+      else if (cleanedLine.match(/^\d+\.\s/)) {
+        if (currentBlock.type !== 'numbered' && currentBlock.content.length > 0) {
+          contentBlocks.push({...currentBlock});
+          currentBlock = { type: 'numbered', content: [] };
+        } else if (currentBlock.type !== 'numbered') {
+          currentBlock.type = 'numbered';
+        }
+        
+        // Save the number and content
+        const match = cleanedLine.match(/^(\d+)\.\s+(.+)$/);
+        if (match) {
+          currentBlock.content.push({
+            number: match[1],
+            text: match[2]
+          });
+        }
+      }
+      // Check if it could be a subheading (ends with a colon)
+      else if (cleanedLine.endsWith(':') && cleanedLine.length < 50) {
+        if (currentBlock.content.length > 0) {
+          contentBlocks.push({...currentBlock});
+        }
+        contentBlocks.push({ type: 'subheading', content: [cleanedLine] });
+        currentBlock = { type: 'paragraph', content: [] };
+      }
+      // Otherwise, treat as paragraph text
+      else {
+        if (currentBlock.type !== 'paragraph' && currentBlock.content.length > 0) {
+          contentBlocks.push({...currentBlock});
+          currentBlock = { type: 'paragraph', content: [] };
+        }
+        currentBlock.content.push(cleanedLine);
       }
     });
     
-    if (inSection && currentSection.title) {
-      sections.push({...currentSection});
+    // Add the last block if not empty
+    if (currentBlock.content.length > 0) {
+      contentBlocks.push({...currentBlock});
     }
     
-    // Extract key metrics for visualization
-    const keyMetrics = extractKeyMetrics(text);
-    
-    return (
-      <View style={styles.premiumReportContainer}>
-        {/* Summary Card with Key Metrics */}
-        {keyMetrics && renderMetricsCard(keyMetrics)}
-        
-        {/* Content Sections */}
-        {sections.map((section, sectionIndex) => (
-          <View key={`section-${sectionIndex}`} style={styles.premiumSection}>
-              <View style={styles.headerIconContainer}>
-                <Icon name={section.icon} size={24} color="#FFFFFF" />
-              </View>
-              <Text style={styles.premiumSectionTitle}>{section.title}</Text>
-            
-            <View style={styles.premiumSectionContent}>
-              {/* Section Content With Advanced Styling */}
-              {renderSectionContent(section.content, section.type)}
+    // Render the content blocks
+    return contentBlocks.map((block, index) => {
+      switch (block.type) {
+        case 'bullet':
+          return (
+            <View key={`block-${index}`} style={newStyles.bulletList}>
+              {block.content.map((item, i) => (
+                <View key={`bullet-${i}`} style={newStyles.bulletItem}>
+                  <View style={newStyles.bulletPoint} />
+                  <Text style={newStyles.bulletText}>{item}</Text>
+                </View>
+              ))}
             </View>
-          </View>
-        ))}
-      </View>
-    );
-  };
-  
-  // Helper function to render different content types with advanced styling
-  const renderSectionContent = (contentLines, sectionType) => {
-    return contentLines.map((line, lineIndex) => {
-      // Bullet points with custom styling based on section type
-      if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
-        const bulletText = line.replace(/^[\s-*•]+/, '').trim();
-        
-        // Check if this bullet contains a key insight or recommendation (for highlighting)
-        const isHighlighted = bulletText.toLowerCase().includes('key') || 
-                              bulletText.toLowerCase().includes('recommend') ||
-                              bulletText.toLowerCase().includes('important');
-        
-        return (
-          <View 
-            key={`line-${lineIndex}`} 
-            style={[
-              styles.premiumBulletItem,
-              isHighlighted && styles.highlightedBulletItem
-            ]}
-          >
-            <View style={[
-              styles.premiumBulletPoint,
-              isHighlighted && styles.highlightedBulletPoint,
-              {backgroundColor: getColorForType(sectionType)}
-            ]} />
-            <Text style={[
-              styles.premiumBulletText,
-              isHighlighted && styles.highlightedBulletText
-            ]}>
-              {bulletText}
-            </Text>
-          </View>
-        );
-      } 
-      // Metrics and statistics with card styling
-      else if (line.includes('%') || /\$\d+/.test(line) || /\d+\s+nights/.test(line)) {
-        return (
-          <View key={`line-${lineIndex}`} style={styles.premiumMetricItem}>
-              <Text style={styles.premiumMetricText}>{formatMetricLine(line)}</Text>
-          </View>
-        );
-      }
-      // Numbered items with modern styling
-      else if (/^\d+\.\s+/.test(line)) {
-        const number = line.match(/^\d+/)[0];
-        const text = line.replace(/^\d+\.\s+/, '');
-        
-        return (
-          <View key={`line-${lineIndex}`} style={styles.premiumNumberedItem}>
-            <View style={[styles.numberBubble, {backgroundColor: getColorForType(sectionType)}]}>
-              <Text style={styles.numberText}>{number}</Text>
+          );
+          
+        case 'numbered':
+          return (
+            <View key={`block-${index}`} style={newStyles.numberedList}>
+              {block.content.map((item, i) => (
+                <View key={`numbered-${i}`} style={newStyles.numberedItem}>
+                  <View style={newStyles.numberCircle}>
+                    <Text style={newStyles.numberText}>{item.number}</Text>
+                  </View>
+                  <Text style={newStyles.numberedItemText}>{item.text}</Text>
+                </View>
+              ))}
             </View>
-            <Text style={styles.premiumNumberedText}>{text}</Text>
-          </View>
-        );
-      }
-      // Section subheadings with accent styling
-      else if (line.match(/^([A-Z][A-Za-z\s]+):/) || line.trim().endsWith(':')) {
-        return (
-          <View key={`line-${lineIndex}`} style={styles.premiumSubheadingContainer}>
-            <View style={[styles.subheadingAccent, {backgroundColor: getColorForType(sectionType)}]} />
-            <Text style={styles.premiumSubheading}>
-              {line}
+          );
+          
+        case 'subheading':
+          return (
+            <Text key={`block-${index}`} style={newStyles.subheading}>
+              {block.content[0]}
             </Text>
-          </View>
-        );
+          );
+          
+        case 'paragraph':
+        default:
+          return (
+            <View key={`block-${index}`} style={newStyles.paragraphBlock}>
+              {block.content.map((line, i) => (
+                <Text key={`line-${i}`} style={newStyles.paragraph}>{line}</Text>
+              ))}
+            </View>
+          );
       }
-      // Regular paragraph with improved typography
-      else if (line.trim() !== '') {
-        return (
-          <Text key={`line-${lineIndex}`} style={styles.premiumParagraph}>
-            {line}
-          </Text>
-        );
-      }
-      // Spacer for empty lines
-      return <View key={`line-${lineIndex}`} style={styles.premiumLineSpacing} />;
     });
   };
   
-  // Helper to extract key metrics for visualization
-  const extractKeyMetrics = (text) => {
-    const metrics = {
-      totalRevenue: null,
-      avgNightlyRate: null,
-      occupancyRate: null,
-      avgRating: null,
-      totalBookings: null
-    };
+  // Helper to extract metrics from the text for visualization
+  const extractMetricsFromText = (text) => {
+    let metrics = {};
     
-    // Look for revenue numbers
+    // Check for total revenue
     const revenueMatch = text.match(/\$([0-9,]+(\.\d+)?)\s+(in total revenue|revenue|in bookings|total bookings value)/i);
     if (revenueMatch) {
-      metrics.totalRevenue = parseFloat(revenueMatch[1].replace(/,/g, ''));
+      metrics.revenue = parseFloat(revenueMatch[1].replace(/,/g, ''));
     }
     
-    // Look for average nightly rate
-    const rateMatch = text.match(/\$([0-9,]+(\.\d+)?)\s+per night/i) || 
-                     text.match(/average( nightly)? rate of \$([0-9,]+(\.\d+)?)/i);
-    if (rateMatch) {
-      metrics.avgNightlyRate = parseFloat((rateMatch[2] || rateMatch[1]).replace(/,/g, ''));
-    }
-    
-    // Look for occupancy rate
-    const occupancyMatch = text.match(/(\d+)%\s+occupancy/i) || 
-                          text.match(/occupancy rate of (\d+)%/i);
+    // Check for occupancy rate
+    const occupancyMatch = text.match(/(\d+)%\s+occupancy/i) || text.match(/occupancy rate of (\d+)%/i);
     if (occupancyMatch) {
-      metrics.occupancyRate = parseInt(occupancyMatch[1]);
+      metrics.occupancy = parseInt(occupancyMatch[1]);
     }
     
-    // Look for average rating
-    const ratingMatch = text.match(/(\d+(\.\d+)?)\s*\/\s*5 rating/i) ||
-                       text.match(/average rating of (\d+(\.\d+)?)/i);
-    if (ratingMatch) {
-      metrics.avgRating = parseFloat(ratingMatch[1]);
+    // Check for average nightly rate
+    const rateMatch = text.match(/\$([0-9,]+(\.\d+)?)\s+per night/i) || 
+                      text.match(/average( nightly)? rate of \$([0-9,]+(\.\d+)?)/i);
+    if (rateMatch) {
+      metrics.nightlyRate = parseFloat((rateMatch[2] || rateMatch[1]).replace(/,/g, ''));
     }
     
-    // Look for total bookings
-    const bookingsMatch = text.match(/(\d+)\s+bookings/i) ||
-                         text.match(/total of (\d+) reservations/i);
+    // Check for number of bookings
+    const bookingsMatch = text.match(/(\d+)\s+bookings/i) || text.match(/total of (\d+) (reservations|bookings)/i);
     if (bookingsMatch) {
-      metrics.totalBookings = parseInt(bookingsMatch[1]);
+      metrics.bookings = parseInt(bookingsMatch[1]);
     }
     
-    return (metrics.totalRevenue || metrics.avgNightlyRate || metrics.occupancyRate) ? metrics : null;
+    // Check for average rating
+    const ratingMatch = text.match(/(\d+(\.\d+)?)\s*\/\s*5 rating/i) || text.match(/average rating of (\d+(\.\d+)?)/i);
+    if (ratingMatch) {
+      metrics.rating = parseFloat(ratingMatch[1]);
+    }
+    
+    return Object.keys(metrics).length > 0 ? metrics : null;
   };
   
-  // Render the metrics card with visualizations
-  const renderMetricsCard = (metrics) => {
+  // Render modern metrics view
+  const renderNewMetricsView = (metrics) => {
     return (
-      <View style={styles.metricsCard}>
-          <Text style={styles.metricsTitle}>Performance Overview</Text>
+      <View style={newStyles.metricsCard}>
+        <Text style={newStyles.metricsTitle}>Key Performance</Text>
         
-        <View style={styles.metricsContent}>
-          <View style={styles.metricsRow}>
-            {metrics.totalRevenue && (
-              <View style={styles.metricBox}>
-                <Icon name="cash-outline" size={24} color={GOLD.primary} style={styles.metricIcon} />
-                <Text style={styles.metricValue}>${metrics.totalRevenue.toLocaleString()}</Text>
-                <Text style={styles.metricLabel}>Total Revenue</Text>
-              </View>
-            )}
-            
-            {metrics.avgNightlyRate && (
-              <View style={styles.metricBox}>
-                <Icon name="pricetag-outline" size={24} color={GOLD.primary} style={styles.metricIcon} />
-                <Text style={styles.metricValue}>${metrics.avgNightlyRate.toLocaleString()}</Text>
-                <Text style={styles.metricLabel}>Avg. Nightly Rate</Text>
-              </View>
-            )}
-          </View>
+        <View style={newStyles.metricsGrid}>
+          {metrics.revenue && (
+            <View style={newStyles.metricItem}>
+              <Icon name="cash-outline" size={20} color={GOLD.primary} />
+              <Text style={newStyles.metricValue}>${metrics.revenue.toLocaleString()}</Text>
+              <Text style={newStyles.metricLabel}>Revenue</Text>
+            </View>
+          )}
           
-          <View style={styles.metricsRow}>
-            {metrics.occupancyRate && (
-              <View style={styles.metricBox}>
-                <Icon name="calendar-outline" size={24} color={GOLD.primary} style={styles.metricIcon} />
-                <View style={styles.progressContainer}>
-                  <View style={[styles.progressBar, {width: `${metrics.occupancyRate}%`}]} />
-                </View>
-                <Text style={styles.metricValue}>{metrics.occupancyRate}%</Text>
-                <Text style={styles.metricLabel}>Occupancy Rate</Text>
-              </View>
-            )}
-            
-            {metrics.avgRating && (
-              <View style={styles.metricBox}>
-                <Icon name="star-outline" size={24} color={GOLD.primary} style={styles.metricIcon} />
-                <View style={styles.starsContainer}>
-                  {[1, 2, 3, 4, 5].map(star => (
-                    <Icon 
-                      key={`star-${star}`}
-                      name={star <= Math.round(metrics.avgRating) ? "star" : "star-outline"} 
-                      size={16} 
-                      color={GOLD.primary} 
-                      style={styles.starIcon}
-                    />
-                  ))}
-                </View>
-                <Text style={styles.metricValue}>{metrics.avgRating.toFixed(1)}/5</Text>
-                <Text style={styles.metricLabel}>Average Rating</Text>
-              </View>
-            )}
-            
-            {metrics.totalBookings && (
-              <View style={styles.metricBox}>
-                <Icon name="people-outline" size={24} color={GOLD.primary} style={styles.metricIcon} />
-                <Text style={styles.metricValue}>{metrics.totalBookings}</Text>
-                <Text style={styles.metricLabel}>Total Bookings</Text>
-              </View>
-            )}
-          </View>
+          {metrics.occupancy && (
+            <View style={newStyles.metricItem}>
+              <Icon name="calendar-outline" size={20} color={GOLD.primary} />
+              <Text style={newStyles.metricValue}>{metrics.occupancy}%</Text>
+              <Text style={newStyles.metricLabel}>Occupancy</Text>
+            </View>
+          )}
+          
+          {metrics.nightlyRate && (
+            <View style={newStyles.metricItem}>
+              <Icon name="pricetag-outline" size={20} color={GOLD.primary} />
+              <Text style={newStyles.metricValue}>${metrics.nightlyRate}</Text>
+              <Text style={newStyles.metricLabel}>Nightly Rate</Text>
+            </View>
+          )}
+          
+          {metrics.bookings && (
+            <View style={newStyles.metricItem}>
+              <Icon name="people-outline" size={20} color={GOLD.primary} />
+              <Text style={newStyles.metricValue}>{metrics.bookings}</Text>
+              <Text style={newStyles.metricLabel}>Bookings</Text>
+            </View>
+          )}
+          
+          {metrics.rating && (
+            <View style={newStyles.metricItem}>
+              <Icon name="star-outline" size={20} color={GOLD.primary} />
+              <Text style={newStyles.metricValue}>{metrics.rating.toFixed(1)}</Text>
+              <Text style={newStyles.metricLabel}>Rating</Text>
+            </View>
+          )}
         </View>
       </View>
     );
   };
-  
-  // Format metric lines for better readability
-  const formatMetricLine = (line) => {
-    // Highlight dollar amounts
-    line = line.replace(/\$\d+(\.\d+)?/g, match => `${match}`);
-    // Highlight percentages
-    line = line.replace(/\d+%/g, match => `${match}`);
-    return line;
-  };
-  
-  // Helper function to get gradient colors for section types
-  const getGradientForType = (type) => {
-    switch(type) {
-      case 'revenue':
-        return ['#B6944C', '#D4AF37'];
-      case 'insights':
-        return ['#4C7BB6', '#37A9D4'];
-      case 'recommendations':
-        return ['#4CB687', '#37D49B'];
-      case 'guest':
-        return ['#B64C7B', '#D437A9'];
-      case 'channel':
-        return ['#4C4CB6', '#8A37D4'];
-      default:
-        return ['#B6944C', '#D4AF37'];
-    }
-  };
-  
-  // Helper function to get colors for elements based on section type
-  const getColorForType = (type) => {
-    switch(type) {
-      case 'revenue':
-        return GOLD.primary;
-      case 'insights':
-        return '#37A9D4';
-      case 'recommendations':
-        return '#37D49B';
-      case 'guest':
-        return '#D437A9';
-      case 'channel':
-        return '#8A37D4';
-      default:
-        return GOLD.primary;
-    }
-  };
-  
-  // Helper function to determine section type based on title
-  const getSectionType = (title) => {
-    const titleLower = title.toLowerCase();
-    
-    if (titleLower.includes('revenue') || titleLower.includes('financial') || titleLower.includes('pricing')) {
-      return 'revenue';
-    }
-    else if (titleLower.includes('insight') || titleLower.includes('finding') || titleLower.includes('analysis')) {
-      return 'insights';
-    }
-    else if (titleLower.includes('recommendation') || titleLower.includes('suggestion') || 
-             titleLower.includes('improvement') || titleLower.includes('optimize')) {
-      return 'recommendations';
-    }
-    else if (titleLower.includes('guest') || titleLower.includes('feedback') || titleLower.includes('review')) {
-      return 'guest';
-    }
-    else if (titleLower.includes('channel') || titleLower.includes('platform') || titleLower.includes('booking source')) {
-      return 'channel';
-    }
-    else {
-      return 'default';
-    }
-  };
-  
-  // Helper function to assign icons to sections based on their title
-  const getSectionIcon = (title) => {
-    const titleLower = title.toLowerCase();
-    
-    if (titleLower.includes('summary') || titleLower.includes('overview')) {
-      return 'document-text-outline';
-    }
-    else if (titleLower.includes('insight') || titleLower.includes('finding')) {
-      return 'bulb-outline';
-    }
-    else if (titleLower.includes('revenue') || titleLower.includes('financial')) {
-      return 'cash-outline';
-    }
-    else if (titleLower.includes('recommendation') || titleLower.includes('suggestion')) {
-      return 'checkbox-outline';
-    }
-    else if (titleLower.includes('pricing') || titleLower.includes('rate')) {
-      return 'pricetag-outline';
-    }
-    else if (titleLower.includes('guest') || titleLower.includes('feedback')) {
-      return 'people-outline';
-    }
-    else if (titleLower.includes('channel') || titleLower.includes('platform')) {
-      return 'globe-outline';
-    }
-    else if (titleLower.includes('season') || titleLower.includes('pattern')) {
-      return 'calendar-outline';
-    }
-    else if (titleLower.includes('occupancy') || titleLower.includes('booking')) {
-      return 'bed-outline';
-    }
-    else if (titleLower.includes('conclusion')) {
-      return 'checkmark-circle-outline';
-    }
-    else {
-      return 'analytics-outline';
-    }
-  };
-  
+
   // Render property item for the picker (redesigned)
   const renderPropertyItem = ({ item }) => {
     const isSelected = selectedListing === item.id;
@@ -1191,18 +1174,29 @@ Format your response with clear section headers and actionable recommendations.`
         {(showFilters || !reportData) && (
           <View style={[styles.inputSection, {backgroundColor: theme.background}]}>
             {/* Analysis Type Toggle */}
-            <View style={styles.analysisTypeContainer}>
+            <View style={[styles.analysisTypeContainer, {
+              marginBottom: 10,
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              width: '100%',
+            }]}>
               <TouchableOpacity
                 style={[
                   styles.analysisTypeButton,
                   analysisType === 'reservation' && styles.analysisTypeButtonActive,
-                  { backgroundColor: analysisType === 'reservation' ? GOLD.light : theme.surface }
+                  { 
+                    backgroundColor: analysisType === 'reservation' ? GOLD.light : theme.surface,
+                    height: 32, // Reduced height
+                    paddingHorizontal: 6, // Even smaller padding
+                    width: '31%', // Fixed width percentage
+                    marginRight: 4,
+                  }
                 ]}
                 onPress={() => toggleAnalysisType('reservation')}
               >
                 <Icon 
                   name="analytics-outline" 
-                  size={18} 
+                  size={12} // Smaller icon
                   color={analysisType === 'reservation' ? GOLD.primary : theme.text.secondary} 
                 />
                 <Text 
@@ -1210,11 +1204,13 @@ Format your response with clear section headers and actionable recommendations.`
                     styles.analysisTypeText,
                     { 
                       color: analysisType === 'reservation' ? GOLD.primary : theme.text.secondary,
-                      fontWeight: analysisType === 'reservation' ? '600' : '400'
+                      fontWeight: analysisType === 'reservation' ? '600' : '400',
+                      fontSize: 11, // Even smaller text
+                      marginLeft: 3, // Less spacing
                     }
                   ]}
                 >
-                  Reservation Analysis
+                  Reservations
                 </Text>
               </TouchableOpacity>
               
@@ -1222,13 +1218,19 @@ Format your response with clear section headers and actionable recommendations.`
                 style={[
                   styles.analysisTypeButton,
                   analysisType === 'listing' && styles.analysisTypeButtonActive,
-                  { backgroundColor: analysisType === 'listing' ? GOLD.light : theme.surface }
+                  { 
+                    backgroundColor: analysisType === 'listing' ? GOLD.light : theme.surface,
+                    height: 32, // Reduced height
+                    paddingHorizontal: 6, // Even smaller padding
+                    width: '28%', // Fixed width percentage
+                    marginRight: 4,
+                  }
                 ]}
                 onPress={() => toggleAnalysisType('listing')}
               >
                 <Icon 
                   name="image-outline" 
-                  size={18} 
+                  size={12} // Smaller icon
                   color={analysisType === 'listing' ? GOLD.primary : theme.text.secondary} 
                 />
                 <Text 
@@ -1236,30 +1238,73 @@ Format your response with clear section headers and actionable recommendations.`
                     styles.analysisTypeText,
                     { 
                       color: analysisType === 'listing' ? GOLD.primary : theme.text.secondary,
-                      fontWeight: analysisType === 'listing' ? '600' : '400'
+                      fontWeight: analysisType === 'listing' ? '600' : '400',
+                      fontSize: 11, // Even smaller text
+                      marginLeft: 3, // Less spacing
                     }
                   ]}
                 >
-                  Listing Optimization
+                  Listing
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.analysisTypeButton,
+                  analysisType === 'realestate' && styles.analysisTypeButtonActive,
+                  { 
+                    backgroundColor: analysisType === 'realestate' ? GOLD.light : theme.surface,
+                    height: 32, // Reduced height
+                    paddingHorizontal: 6, // Even smaller padding
+                    width: '35%', // Fixed width percentage - larger for "Real Estate"
+                  }
+                ]}
+                onPress={() => toggleAnalysisType('realestate')}
+              >
+                <Icon 
+                  name="home-outline" 
+                  size={12} // Smaller icon
+                  color={analysisType === 'realestate' ? GOLD.primary : theme.text.secondary} 
+                />
+                <Text 
+                  style={[
+                    styles.analysisTypeText,
+                    { 
+                      color: analysisType === 'realestate' ? GOLD.primary : theme.text.secondary,
+                      fontWeight: analysisType === 'realestate' ? '600' : '400',
+                      fontSize: 11, // Even smaller text
+                      marginLeft: 3, // Less spacing
+                    }
+                  ]}
+                >
+                  Real Estate
                 </Text>
               </TouchableOpacity>
             </View>
             
-            <View style={styles.inputRow}>
-              <Text style={[styles.sectionLabel, {color: theme.text.secondary}]}>Property</Text>
+            <View style={[styles.inputRow, {marginBottom: 10}]}>
+              <Text style={[styles.sectionLabel, {
+                color: theme.text.secondary,
+                fontSize: 12, // Smaller label
+                marginBottom: 4, // Less bottom margin
+              }]}>Property</Text>
               
-              {/* Slimmer Dropdown */}
               <TouchableOpacity 
                 style={[styles.propertySelector, {
                   backgroundColor: theme.surface,
                   borderColor: GOLD.light,
+                  height: 36, // Further reduced height
+                  paddingHorizontal: 12, // Smaller horizontal padding
                 }]} 
                 onPress={() => setShowPropertyPicker(true)}
               >
-                <Text style={[styles.selectorText, {color: theme.text.primary}]}>
+                <Text style={[styles.selectorText, {
+                  color: theme.text.primary,
+                  fontSize: 13, // Even smaller font size
+                }]}>
                   {selectedListingName}
                 </Text>
-                <Icon name="chevron-down" size={18} color={GOLD.primary} />
+                <Icon name="chevron-down" size={12} color={GOLD.primary} />
               </TouchableOpacity>
             </View>
             
@@ -1267,9 +1312,15 @@ Format your response with clear section headers and actionable recommendations.`
             {analysisType === 'listing' && imagesCarouselVisible && renderImagesCarousel()}
             
             <View style={styles.promptContainer}>
-              <Text style={[styles.sectionLabel, {color: theme.text.secondary}]}>
+              <Text style={[styles.sectionLabel, {
+                color: theme.text.secondary,
+                fontSize: 13, // Smaller label
+                marginBottom: 6, // Reduced bottom margin
+              }]}>
                 {analysisType === 'listing' 
                   ? 'Specific areas to focus on (optional)'
+                  : analysisType === 'realestate'
+                  ? 'Specific market details to analyze (optional)'
                   : 'Additional analysis (optional)'}
               </Text>
               
@@ -1279,11 +1330,17 @@ Format your response with clear section headers and actionable recommendations.`
                   {
                     backgroundColor: theme.surface, 
                     color: theme.text.primary,
-                    borderColor: 'rgba(0,0,0,0.05)'
+                    borderColor: 'rgba(0,0,0,0.05)',
+                    minHeight: 70, // Reduced height
+                    paddingVertical: 10, // Smaller padding
+                    paddingHorizontal: 14, // Smaller padding
+                    fontSize: 14, // Smaller font
                   }
                 ]}
                 placeholder={analysisType === 'listing' 
                   ? "e.g., Focus on bedroom staging, exterior appeal"
+                  : analysisType === 'realestate'
+                  ? "e.g., Analyze market trends, local amenities"
                   : "e.g., Analyze weekend vs weekday performance"}
                 placeholderTextColor={theme.text.placeholder}
                 value={userPrompt}
@@ -1292,37 +1349,55 @@ Format your response with clear section headers and actionable recommendations.`
               />
             </View>
             
-            <TouchableOpacity
-              style={[styles.runButton]}
-              onPress={generateAIReport}
-              disabled={loading || !selectedListing}
-            >
-              <View style={[styles.buttonGradient, {backgroundColor: GOLD.primary}]}>
-                <Text style={styles.runButtonText}>
-                  {loading ? 'Generating Report...' : analysisType === 'listing' 
-                    ? 'Generate Listing Optimization' 
-                    : 'Generate AI Report'}
-                </Text>
-                {!loading && 
-                  <Icon 
-                    name={analysisType === 'listing' ? "image-outline" : "analytics-outline"} 
-                    size={20} 
-                    color="#FFFFFF" 
-                    style={styles.buttonIcon} 
-                  />
-                }
-              </View>
-            </TouchableOpacity>
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={[styles.runButton, {
+                  height: 34, // Even smaller height
+                  borderRadius: 17,
+                  marginBottom: 5,
+                }]}
+                onPress={generateAIReport}
+                disabled={loading || !selectedListing}
+              >
+                <View style={[styles.buttonGradient, {
+                  backgroundColor: GOLD.primary,
+                  paddingVertical: 8, // Smaller vertical padding
+                  paddingHorizontal: 16, // Smaller horizontal padding
+                }]}>
+                  <Text style={[styles.smallerButtonText, {fontSize: 13}]}>
+                    {loading ? 'Generating...' : analysisType === 'listing' 
+                      ? 'Generate Optimization' 
+                      : analysisType === 'realestate'
+                      ? 'Generate Market Analysis'
+                      : 'Generate Report'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              
+              {reportData && (
+                <TouchableOpacity
+                  style={[styles.hideButton, {
+                    paddingVertical: 6, // Smaller padding
+                    paddingHorizontal: 12,
+                  }]}
+                  onPress={() => setShowFilters(false)}
+                >
+                  <Text style={[styles.hideButtonText, {fontSize: 12}]}>Hide Filters</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         )}
         
-        {/* Results Section */}
+        {/* Results Section - REDESIGNED */}
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={GOLD.primary} />
             <Text style={[styles.loadingText, { color: theme.text.secondary }]}>
               {analysisType === 'listing' 
                 ? 'Processing images and analyzing listing data...' 
+                : analysisType === 'realestate'
+                ? 'Analyzing market data and generating insights...'
                 : 'Analyzing property data and generating insights...'}
             </Text>
           </View>
@@ -1341,16 +1416,16 @@ Format your response with clear section headers and actionable recommendations.`
           <Animated.View style={[styles.reportContainer, { opacity: fadeAnim }]}>
             {!showFilters && (
               <TouchableOpacity 
-                style={styles.filterToggle}
+                style={newStyles.filterToggle}
                 onPress={() => setShowFilters(!showFilters)}
               >
                 <Icon name="options-outline" size={16} color={GOLD.primary} />
-                <Text style={styles.filterToggleText}>Show Filters</Text>
+                <Text style={newStyles.filterToggleText}>Adjust Analysis</Text>
               </TouchableOpacity>
             )}
             <ScrollView 
-              style={styles.reportScrollView}
-              contentContainerStyle={styles.reportContent}
+              style={newStyles.reportScrollView}
+              contentContainerStyle={newStyles.reportScrollContent}
               showsVerticalScrollIndicator={false}
               onScroll={Animated.event(
                 [{ nativeEvent: { contentOffset: { y: scrollY } } }],
@@ -1358,7 +1433,7 @@ Format your response with clear section headers and actionable recommendations.`
               )}
               scrollEventThrottle={16}
             >
-              {formatReport(reportData)}
+              {renderNewReport(reportData)}
             </ScrollView>
           </Animated.View>
         ) : (
@@ -1417,6 +1492,182 @@ Format your response with clear section headers and actionable recommendations.`
   );
 };
 
+// Add the new styles for the redesigned report
+const newStyles = StyleSheet.create({
+  // Report container and structure
+  reportContainer: {
+    paddingTop: 8,
+  },
+  reportScrollView: {
+    flex: 1,
+  },
+  reportScrollContent: {
+    paddingBottom: 30,
+  },
+  
+  // Filter toggle
+  filterToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 20,
+    alignSelf: 'center',
+    marginVertical: 10,
+    backgroundColor: 'rgba(182, 148, 76, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(182, 148, 76, 0.3)',
+  },
+  filterToggleText: {
+    fontSize: 13,
+    marginLeft: 8,
+    color: GOLD.primary,
+    fontWeight: '500',
+  },
+  
+  // Section cards
+  sectionCard: {
+    marginHorizontal: 16,
+    marginVertical: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: '700', // Make bolder
+    color: '#333',
+    marginBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
+    paddingBottom: 8,
+  },
+  sectionContent: {
+    paddingTop: 4,
+  },
+  
+  // Metrics card
+  metricsCard: {
+    marginHorizontal: 16,
+    marginVertical: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+    borderLeftWidth: 3,
+    borderLeftColor: GOLD.primary,
+  },
+  metricsTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: GOLD.primary,
+    marginBottom: 16,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  metricItem: {
+    width: '30%',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  metricValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  metricLabel: {
+    fontSize: 12,
+    color: '#777',
+    textAlign: 'center',
+  },
+  
+  // Content elements
+  paragraphBlock: {
+    marginBottom: 16,
+  },
+  paragraph: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#444',
+    marginBottom: 8,
+  },
+  bulletList: {
+    marginBottom: 16,
+  },
+  bulletItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  bulletPoint: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: GOLD.primary,
+    marginTop: 8,
+    marginRight: 12,
+  },
+  bulletText: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#444',
+  },
+  numberedList: {
+    marginBottom: 16,
+  },
+  numberedItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  numberCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: GOLD.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    marginTop: 2,
+  },
+  numberText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  numberedItemText: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#444',
+  },
+  subheading: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginTop: 16,
+    marginBottom: 12,
+  },
+});
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1467,68 +1718,89 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    height: 50,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    height: 55,
+    paddingHorizontal: 18,
+    borderRadius: 12,
     borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
   selectorText: {
     fontSize: 16,
     fontWeight: '500',
+    letterSpacing: 0.2,
   },
   promptContainer: {
-    marginBottom: 20,
+    marginBottom: 22,
   },
   promptInput: {
     borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
-    minHeight: 80,
+    borderRadius: 12,
+    padding: 16,
+    minHeight: 95,
     textAlignVertical: 'top',
-    fontSize: 15,
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: '400', 
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
   runButton: {
-    borderRadius: 25,
+    borderRadius: 30,
     overflow: 'hidden',
     shadowColor: GOLD.dark,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 4,
+    marginTop: 5,
   },
   buttonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
   },
   runButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '600',
+    letterSpacing: 0.3,
   },
   buttonIcon: {
-    marginLeft: 8,
+    marginLeft: 10,
   },
   // Filter toggle
   filterToggle: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(182, 148, 76, 0.05)',
-    borderRadius: 4,
-    alignSelf: 'flex-start',
-    marginLeft: 20,
-    marginTop: 8,
-    marginBottom: 8,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(182, 148, 76, 0.08)',
+    borderRadius: 25,
+    alignSelf: 'center',
+    marginHorizontal: 20,
+    marginTop: 15,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   filterToggleText: {
-    fontSize: 13,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '600',
     color: GOLD.primary,
-    marginLeft: 6,
+    marginLeft: 8,
+    letterSpacing: 0.2,
   },
   // Loading & Error States
   loadingContainer: {
@@ -1660,55 +1932,59 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   reportContent: {
+    paddingHorizontal: 5,
     paddingBottom: 30,
   },
   
   // Metrics Card
   metricsCard: {
     marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 16,
+    marginTop: 12,
+    marginBottom: 20,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
+    borderWidth: 0.5,
+    borderColor: 'rgba(0,0,0,0.04)',
   },
   metricsTitle: {
     color: GOLD.primary,
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '700',
     textAlign: 'center',
-    marginVertical: 12,
+    marginVertical: 16,
+    letterSpacing: 0.3,
   },
   metricsContent: {
-    padding: 12,
+    padding: 15,
   },
   metricsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 12,
+    marginBottom: 15,
     flexWrap: 'wrap',
   },
   metricBox: {
     alignItems: 'center',
-    padding: 10,
+    padding: 12,
     minWidth: width / 3,
   },
   metricIcon: {
-    marginBottom: 6,
+    marginBottom: 10,
   },
   metricValue: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
     color: '#333',
-    marginVertical: 3,
+    marginVertical: 5,
   },
   metricLabel: {
-    fontSize: 12,
+    fontSize: 14,
     color: '#666',
     textAlign: 'center',
   },
@@ -1717,7 +1993,7 @@ const styles = StyleSheet.create({
     height: 6,
     backgroundColor: '#F0F0F0',
     borderRadius: 3,
-    marginVertical: 6,
+    marginVertical: 8,
     overflow: 'hidden',
   },
   progressBar: {
@@ -1727,7 +2003,7 @@ const styles = StyleSheet.create({
   },
   starsContainer: {
     flexDirection: 'row',
-    marginVertical: 6,
+    marginVertical: 8,
   },
   starIcon: {
     marginHorizontal: 2,
@@ -1739,139 +2015,188 @@ const styles = StyleSheet.create({
   },
   premiumSection: {
     marginHorizontal: 16,
-    marginBottom: 16,
+    marginBottom: 20,
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 15,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
     overflow: 'hidden',
-    paddingTop: 12,
-    paddingBottom: 14,
+    paddingTop: 18,
+    paddingBottom: 20,
+    borderWidth: 0.5,
+    borderColor: 'rgba(0,0,0,0.04)',
   },
   headerIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: GOLD.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 16,
-    marginBottom: 8,
+    marginRight: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 3,
   },
   premiumSectionTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     color: '#333',
-    marginHorizontal: 16,
-    marginBottom: 10,
+    flex: 1,
+    letterSpacing: 0.3,
   },
   premiumSectionContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
+    paddingTop: 5,
   },
   
   // Content Elements
   premiumSubheadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 16,
-    marginBottom: 10,
+    marginTop: 22,
+    marginBottom: 12,
   },
   subheadingAccent: {
-    width: 3,
-    height: '100%',
+    width: 4,
+    height: 20,
     borderRadius: 2,
-    marginRight: 8,
+    marginRight: 10,
   },
   premiumSubheading: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
     color: '#333',
     flex: 1,
+    letterSpacing: 0.2,
   },
   premiumParagraph: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 14,
+    fontSize: 15,
+    lineHeight: 24,
+    marginBottom: 16,
     color: '#333',
+    letterSpacing: 0.2,
   },
   premiumBulletItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 10,
+    marginBottom: 14,
     paddingLeft: 4,
   },
   highlightedBulletItem: {
-    backgroundColor: 'rgba(182, 148, 76, 0.05)',
-    padding: 10,
-    paddingLeft: 8,
-    borderRadius: 8,
+    backgroundColor: 'rgba(182, 148, 76, 0.07)',
+    padding: 14,
+    paddingLeft: 12,
+    borderRadius: 10,
     marginHorizontal: -8,
+    marginVertical: 6,
   },
   premiumBulletPoint: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginTop: 7,
-    marginRight: 10,
-    backgroundColor: GOLD.primary,
-  },
-  highlightedBulletPoint: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    marginTop: 6,
+    marginTop: 8,
+    marginRight: 12,
+    backgroundColor: GOLD.primary,
+  },
+  highlightedBulletPoint: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginTop: 7,
     backgroundColor: GOLD.primary,
   },
   premiumBulletText: {
     flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 24,
     color: '#333',
+    letterSpacing: 0.2,
   },
   highlightedBulletText: {
-    fontWeight: '500',
-  },
-  premiumMetricItem: {
-    marginVertical: 10,
-    borderRadius: 8,
-    overflow: 'hidden',
+    fontWeight: '600',
   },
   premiumMetricText: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#333',
     fontWeight: '600',
+    marginBottom: 16,
+    lineHeight: 24,
   },
   premiumNumberedItem: {
     flexDirection: 'row',
-    marginBottom: 12,
+    marginBottom: 16,
     alignItems: 'flex-start',
   },
   numberBubble: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
-    marginTop: 1,
+    marginRight: 12,
+    marginTop: 2,
   },
   numberText: {
     color: '#FFF',
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
   },
   premiumNumberedText: {
     flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 24,
     color: '#333',
     fontWeight: '500',
+    letterSpacing: 0.2,
   },
   premiumLineSpacing: {
-    height: 8,
+    height: 12,
+  },
+  
+  // Additional styles
+  introSection: {
+    marginHorizontal: 16,
+    marginBottom: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 15,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
+    borderWidth: 0.5,
+    borderColor: 'rgba(0,0,0,0.04)',
+  },
+  introParagraph: {
+    fontSize: 16,
+    lineHeight: 26,
+    color: '#333',
+    letterSpacing: 0.2,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 18,
+  },
+  sectionEmoji: {
+    fontSize: 22,
+  },
+  bulletListContainer: {
+    marginBottom: 18,
+  },
+  numberedListContainer: {
+    marginBottom: 18,
+  },
+  paragraphContainer: {
+    marginBottom: 14,
   },
   // Analysis Type Toggle
   analysisTypeContainer: {
@@ -1881,21 +2206,18 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   analysisTypeButton: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
+    paddingVertical: 8,
     paddingHorizontal: 8,
     borderRadius: 8,
-    marginHorizontal: 4,
   },
   analysisTypeButtonActive: {
     borderWidth: 1,
     borderColor: GOLD.primary,
   },
   analysisTypeText: {
-    fontSize: 13,
     marginLeft: 6,
   },
   // Carousel styles
@@ -1933,6 +2255,35 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
   },
+  // Smaller button styles
+  smallerButton: {
+    width: '65%',
+    height: 40,
+    borderRadius: 20,
+  },
+  smallerButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 5,
+  },
+  hideButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  hideButtonText: {
+    fontSize: 13,
+    color: '#666',
+    fontWeight: '500',
+  },
 });
 
-export default AIReportScreen;
+export default AiScreen;

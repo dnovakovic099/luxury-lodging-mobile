@@ -1,10 +1,19 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { theme } from '../theme';
 import { format, parseISO } from 'date-fns';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
+import ReservationDetailModal from '../components/ReservationDetailModal';
+
+// Add a gold color constant
+const GOLD = {
+  primary: '#B6944C',
+  secondary: '#DCBF78',
+  light: '#B6944C',
+  text: '#FFFFFF'
+};
 
 const formatCurrency = (value) => {
   if (value === null || value === undefined) {
@@ -36,7 +45,7 @@ const formatDate = (dateString) => {
   }
 };
 
-const ReservationCard = ({ item }) => {
+const ReservationCard = ({ item, onPress }) => {
   const { theme, isDarkMode } = useTheme();
   
   // Safely access properties with defaults
@@ -61,6 +70,12 @@ const ReservationCard = ({ item }) => {
     channelText = 'Vrbo';
     channelColor = theme.channelTags.vrbo.text;
     channelBgColor = theme.channelTags.vrbo.background;
+  } else if (channelLower.includes('luxury') || channelType === 'default') {
+    // Luxury Lodging - use gold background with white text
+    channelType = 'luxury';
+    channelText = 'Luxury Lodging';
+    channelColor = GOLD.text; // White text
+    channelBgColor = GOLD.light; // Gold background
   }
   
   // Extract financial data
@@ -93,10 +108,14 @@ const ReservationCard = ({ item }) => {
   const propertyColor = getPropertyColor(propertyName);
   
   return (
-    <View style={[styles.card, { 
-      backgroundColor: isDarkMode ? 'rgba(25, 25, 25, 0.9)' : '#FFFFFF',
-      borderColor: isDarkMode ? 'rgba(60, 60, 60, 0.2)' : 'rgba(0, 0, 0, 0.1)'
-    }]}>
+    <TouchableOpacity 
+      style={[styles.card, { 
+        backgroundColor: isDarkMode ? 'rgba(25, 25, 25, 0.9)' : '#FFFFFF',
+        borderColor: isDarkMode ? 'rgba(60, 60, 60, 0.2)' : 'rgba(0, 0, 0, 0.1)'
+      }]}
+      onPress={() => onPress && onPress(item)}
+      activeOpacity={0.7}
+    >
       {/* Property name and channel tag */}
       <View style={styles.cardHeader}>
         <View style={styles.propertyContainer}>
@@ -134,13 +153,15 @@ const ReservationCard = ({ item }) => {
           <Text style={styles.payoutValue}>{formatCurrency(ownerPayout)}</Text>
         </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 };
 
 const UpcomingReservations = ({ reservations = [], loading = false }) => {
   const navigation = useNavigation();
   const { theme, isDarkMode } = useTheme();
+  const [selectedReservation, setSelectedReservation] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
   
   // We don't need as much filtering since the data should already be filtered
   // in the AuthContext, but we'll still do a basic validation
@@ -162,11 +183,120 @@ const UpcomingReservations = ({ reservations = [], loading = false }) => {
       return true;
     });
     
-    return validReservations;
+    // Sort by check-in date (ascending order - upcoming first)
+    const sortedReservations = [...validReservations].sort((a, b) => {
+      // Get check-in dates from various possible fields
+      const aDate = a.checkIn || a.arrivalDate || a.checkInDate;
+      const bDate = b.checkIn || b.arrivalDate || b.checkInDate;
+      
+      // Handle missing dates - put reservations without dates at the end
+      if (!aDate && !bDate) return 0;
+      if (!aDate) return 1;
+      if (!bDate) return -1;
+      
+      // Convert to comparable dates (handle both string dates and Date objects)
+      let aTime, bTime;
+      try {
+        aTime = aDate instanceof Date ? aDate.getTime() : new Date(aDate).getTime();
+        if (isNaN(aTime)) return 1; // Invalid dates go to the end
+      } catch (e) {
+        return 1; // Error parsing date, move to end
+      }
+      
+      try {
+        bTime = bDate instanceof Date ? bDate.getTime() : new Date(bDate).getTime();
+        if (isNaN(bTime)) return -1; // Invalid dates go to the end
+      } catch (e) {
+        return -1; // Error parsing date, move to end
+      }
+      
+      return aTime - bTime; // Sort ascending (earliest dates first)
+    });
+    
+    return sortedReservations;
   }, [reservations]);
   
   const handleSeeAll = () => {
     navigation.navigate('Reservations');
+  };
+  
+  const handleReservationPress = (reservation) => {
+    // Enhance the reservation data for the modal with better financial data formatting
+    const enhancedReservation = {
+      ...reservation,
+      // Add required fields for ReservationDetailModal to display properly
+      id: reservation.id || reservation.reservationId,
+      guestName: reservation.guestName || reservation.guest?.name || 'Guest',
+      propertyName: reservation.propertyName || reservation.listingName || 'Property',
+      arrivalDate: reservation.arrivalDate || new Date(reservation.checkIn || reservation.checkInDate),
+      departureDate: reservation.departureDate || new Date(reservation.checkOut || reservation.checkOutDate),
+      bookingDate: reservation.bookingDate || new Date(reservation.reservationDate || Date.now()),
+      
+      // Guest counts
+      adultCount: reservation.adults || reservation.adultCount || reservation.numberOfGuests || 1,
+      infantCount: reservation.infants || reservation.infantCount || 0,
+      childrenCount: reservation.children || reservation.childrenCount || 0,
+      
+      // Booking details
+      confirmationCode: reservation.confirmationCode || reservation.channelReservationId || 'N/A',
+      cancellationPolicy: reservation.airbnbCancellationPolicy || reservation.cancellationPolicy || 'Standard',
+      nights: reservation.nights || 1,
+      
+      // Financial data for Guest Paid section
+      nightlyRate: reservation.baseRate ? reservation.baseRate / (reservation.nights || 1) : 0,
+      cleaningFee: reservation.cleaningFee || 0,
+      serviceFee: reservation.serviceFee || reservation.hostChannelFee || 0,
+      occupancyTaxes: reservation.occupancyTaxes || reservation.tourismFee || reservation.cityTax || 0,
+      guestTotal: reservation.guestTotal || reservation.totalPrice || 0,
+      
+      // Financial data for Host Payout section - expanded field checking
+      baseRate: parseFloat(reservation.baseRate) || 0,
+      
+      // Process fee - check multiple possible fields
+      processingFee: parseFloat(
+        reservation.financialData?.PaymentProcessing || 
+        reservation.financialData?.paymentProcessing || 
+        reservation.paymentProcessingFee || 
+        reservation.processingFee || 
+        0
+      ),
+      
+      // Channel fee - check multiple possible fields
+      channelFee: parseFloat(
+        reservation.channelFee || 
+        reservation.hostChannelFee ||
+        reservation.VRBOChannelFee ||
+        reservation.financialData?.channelFee ||
+        reservation.financialData?.hostChannelFee ||
+        reservation.financialData?.VRBOChannelFee ||
+        0
+      ),
+      
+      // Management fee - check multiple possible fields
+      managementFee: parseFloat(
+        reservation.pmCommission || 
+        reservation.managementFee || 
+        reservation.financialData?.pmCommission || 
+        reservation.financialData?.managementFee || 
+        reservation.financialData?.managementFeeAirbnb || 
+        0
+      ),
+      
+      // Final payout
+      hostPayout: parseFloat(reservation.ownerPayout) || parseFloat(reservation.airbnbExpectedPayoutAmount) || 0,
+      
+      // Channel information
+      channelName: reservation.channelName || '',
+      channel: reservation.channel || '',
+      status: reservation.status || '',
+      paymentStatus: reservation.paymentStatus || '',
+      
+      // Keep the raw financial data
+      financialData: reservation.financialData || {}
+    };
+    
+    setSelectedReservation(enhancedReservation);
+    setModalVisible(true);
   };
   
   if (loading) {
@@ -222,11 +352,18 @@ const UpcomingReservations = ({ reservations = [], loading = false }) => {
           return (
             <React.Fragment key={item?.id?.toString() || `reservation-${index}`}>
               {index > 0 && <View style={styles.separator} />}
-              <ReservationCard item={item} />
+              <ReservationCard item={item} onPress={handleReservationPress} />
             </React.Fragment>
           );
         })}
       </View>
+      
+      {/* Reservation Detail Modal */}
+      <ReservationDetailModal
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        reservation={selectedReservation}
+      />
     </View>
   );
 };
@@ -336,7 +473,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dateSection: {
-    flex: 3,
+    flex: 2.8,
     flexDirection: 'row',
   },
   dateItem: {
@@ -355,8 +492,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   payoutSection: {
-    flex: 1,
+    flex: 1.2,
     alignItems: 'flex-end',
+    justifyContent: 'center',
   },
   payoutLabel: {
     fontSize: 9,
@@ -365,9 +503,10 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   payoutValue: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
     color: '#4CAF50',
+    letterSpacing: 0.5,
   },
 });
 

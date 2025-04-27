@@ -1409,7 +1409,10 @@ const HomeScreen = ({ navigation }) => {
             {/* Key metrics row */}
             <View style={styles.metricsContainer}>
               {/* Properties metric */}
-              <View style={styles.metricCard}>
+              <TouchableOpacity 
+                style={styles.metricCard}
+                onPress={() => navigation.navigate('Listings')}
+              >
                 {metricsLoading ? (
                   <ActivityIndicator size="small" color="#FFFFFF" style={styles.metricLoader} />
                 ) : (
@@ -1419,7 +1422,7 @@ const HomeScreen = ({ navigation }) => {
                   <Ionicons name="home-outline" size={12} color="rgba(255,255,255,0.7)" />
                   <Text style={styles.metricLabel}>PROPERTIES</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
               
               {/* 6M monthly average */}
               <View style={styles.metricCard}>

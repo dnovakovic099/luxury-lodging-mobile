@@ -50,7 +50,7 @@ const RevenueSummary = ({ data, style }) => {
         <View style={styles.iconContainer}>
           <Ionicons name="calendar-outline" size={16} color={theme.primary} />
         </View>
-        <Text style={[styles.label, { color: theme.text.secondary }]}>FUTURE</Text>
+        <Text style={[styles.label, { color: theme.text.secondary }]}>UPCOMING</Text>
         <Text style={[styles.value, { color: theme.primary }]}>{formatValue(futureRevenue)}</Text>
       </View>
       

@@ -551,7 +551,11 @@ const ReservationsScreen = ({ navigation }) => {
             // Channel fee
             channelFee: parseFloat(
               res.channelFee || 
+              res.hostChannelFee ||
+              res.VRBOChannelFee ||
               financialData.channelFee || 
+              financialData.hostChannelFee ||
+              financialData.VRBOChannelFee ||
               0
             ),
             
@@ -865,7 +869,11 @@ const ReservationsScreen = ({ navigation }) => {
       // Channel fee - check multiple possible fields
       channelFee: parseFloat(
         reservation.channelFee || 
+        reservation.hostChannelFee ||
+        reservation.VRBOChannelFee ||
         reservation.financialData?.channelFee ||
+        reservation.financialData?.hostChannelFee ||
+        reservation.financialData?.VRBOChannelFee ||
         0
       ),
       

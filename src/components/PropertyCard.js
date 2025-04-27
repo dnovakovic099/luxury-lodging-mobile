@@ -7,6 +7,9 @@ import {
   Animated,
   Pressable,
   Dimensions,
+  Linking,
+  Alert,
+  TouchableOpacity,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { theme as defaultTheme } from '../theme';
@@ -84,6 +87,37 @@ const PropertyCard = ({ property, revenue, onPress }) => {
     elevation: 8,
   };
 
+  const handleLinkClick = async (type) => {
+    console.log('Property object:', property);
+    
+    let url;
+    if (type === 'airbnb' && property.airbnbListingUrl) {
+      url = property.airbnbListingUrl;
+    } else if (type === 'vrbo' && property.vrboListingUrl) {
+      url = property.vrboListingUrl;
+    } else if (type === 'airbnb' && property.externalUrls?.airbnb) {
+      url = property.externalUrls.airbnb;
+    } else if (type === 'vrbo' && property.externalUrls?.vrbo) {
+      url = property.externalUrls.vrbo;
+    }
+    
+    if (url) {
+      try {
+        const canOpen = await Linking.canOpenURL(url);
+        if (canOpen) {
+          await Linking.openURL(url);
+        } else {
+          Alert.alert("Cannot open link", "Unable to open the external link.");
+        }
+      } catch (error) {
+        console.error('Error opening URL:', error);
+        Alert.alert("Error", "There was a problem opening the link.");
+      }
+    } else {
+      console.log(`No ${type} URL available for this property`);
+    }
+  };
+
   return (
     <AnimatedPressable 
       onPressIn={handlePressIn}
@@ -113,7 +147,7 @@ const PropertyCard = ({ property, revenue, onPress }) => {
         
         <View style={styles.overlay}>
           <View style={styles.statusBadge}>
-            <View style={[styles.statusDot, { backgroundColor: GOLD.primary }]} />
+            <View style={[styles.statusDot, { backgroundColor: '#4CAF50' }]} />
             <Text style={styles.statusText}>Active</Text>
           </View>
         </View>
@@ -131,42 +165,61 @@ const PropertyCard = ({ property, revenue, onPress }) => {
         </View>
         
         <View style={styles.locationContainer}>
-          <Ionicons name="location-outline" size={14} color={theme.text.secondary} />
+          <Ionicons name="location-outline" size={12} color={theme.text.secondary} />
           <Text style={[styles.location, { color: theme.text.secondary }]} numberOfLines={1}>
             {property.address || 'Location Information Unavailable'}
           </Text>
         </View>
 
         <View style={[styles.revenueContainer, { borderTopColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)' }]}>
-          <View style={styles.metricItem}>
-            <View style={styles.metricIconContainer}>
-              <Ionicons name="cash-outline" size={14} color={GOLD.primary} />
+          <View style={styles.revenueRow}>
+            <View style={styles.metricItem}>
+              <View style={styles.metricIconContainer}>
+                <Ionicons name="cash-outline" size={12} color={GOLD.primary} />
+              </View>
+              <View>
+                <Text style={[styles.revenueValue, { color: GOLD.primary }]}>
+                  {moneyFormatter(revenue)}
+                </Text>
+                <Text style={[styles.revenueLabel, { color: theme.text.secondary }]}>Total Revenue</Text>
+              </View>
             </View>
-            <View>
-              <Text style={[styles.revenueValue, { color: GOLD.primary }]}>
-                {moneyFormatter(revenue)}
-              </Text>
-              <Text style={[styles.revenueLabel, { color: theme.text.secondary }]}>Total Revenue</Text>
+            
+            <View style={styles.listingLinks}>
+              <TouchableOpacity 
+                style={[styles.listingLinkButton, { backgroundColor: 'rgba(255,90,95,0.1)' }]}
+                onPress={() => handleLinkClick('airbnb')}
+              >
+                <Text style={[styles.listingLinkText, { color: '#FF5A5F' }]}>Airbnb</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.listingLinkButton, { backgroundColor: 'rgba(61,103,255,0.1)' }]}
+                onPress={() => handleLinkClick('vrbo')}
+              >
+                <Text style={[styles.listingLinkText, { color: '#3D67FF' }]}>VRBO</Text>
+              </TouchableOpacity>
             </View>
           </View>
           
-          {property.bedroomCount && (
-            <View style={styles.metricItem}>
-              <Ionicons name="bed-outline" size={14} color={theme.text.secondary} style={styles.inlineIcon} />
-              <Text style={[styles.metricText, { color: theme.text.secondary }]}>
-                {property.bedroomCount} {property.bedroomCount === 1 ? 'Bedroom' : 'Bedrooms'}
-              </Text>
-            </View>
-          )}
-          
-          {property.bathroomCount && (
-            <View style={styles.metricItem}>
-              <Ionicons name="water-outline" size={14} color={theme.text.secondary} style={styles.inlineIcon} />
-              <Text style={[styles.metricText, { color: theme.text.secondary }]}>
-                {property.bathroomCount} {property.bathroomCount === 1 ? 'Bathroom' : 'Bathrooms'}
-              </Text>
-            </View>
-          )}
+          <View style={styles.propertyMetrics}>
+            {property.bedroomCount && (
+              <View style={styles.metricItem}>
+                <Ionicons name="bed-outline" size={12} color={theme.text.secondary} style={styles.inlineIcon} />
+                <Text style={[styles.metricText, { color: theme.text.secondary }]}>
+                  {property.bedroomCount} {property.bedroomCount === 1 ? 'Bedroom' : 'Bedrooms'}
+                </Text>
+              </View>
+            )}
+            
+            {property.bathroomCount && (
+              <View style={styles.metricItem}>
+                <Ionicons name="water-outline" size={12} color={theme.text.secondary} style={styles.inlineIcon} />
+                <Text style={[styles.metricText, { color: theme.text.secondary }]}>
+                  {property.bathroomCount} {property.bathroomCount === 1 ? 'Bathroom' : 'Bathrooms'}
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
       </View>
     </AnimatedPressable>
@@ -184,7 +237,7 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     width: '100%',
-    height: 180,
+    height: 160,
     position: 'relative',
   },
   image: {
@@ -207,7 +260,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 50,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: 'transparent',
     backgroundGradient: 'linear-gradient(to top, rgba(0,0,0,0.6), transparent)',
   },
   overlay: {
@@ -235,16 +288,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   content: {
-    padding: 16,
+    padding: 12,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   title: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '600',
     flex: 1,
     marginRight: 8,
@@ -252,57 +305,80 @@ const styles = StyleSheet.create({
   locationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 10,
   },
   location: {
-    fontSize: 13,
+    fontSize: 12,
     marginLeft: 4,
     opacity: 0.8,
   },
   ratingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 8,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+    borderRadius: 6,
   },
   rating: {
-    fontSize: 12,
-    marginLeft: 4,
+    fontSize: 11,
+    marginLeft: 3,
     fontWeight: '600',
   },
   revenueContainer: {
-    paddingTop: 16,
+    paddingTop: 10,
     borderTopWidth: 1,
+  },
+  revenueRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   metricItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   metricIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: GOLD.light,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
+    marginRight: 8,
   },
   revenueValue: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
   },
   revenueLabel: {
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: 11,
+    marginTop: 1,
   },
   inlineIcon: {
-    marginRight: 6,
+    marginRight: 5,
   },
   metricText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
+  },
+  listingLinks: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  listingLinkButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    marginLeft: 6,
+  },
+  listingLinkText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  propertyMetrics: {
+    marginTop: 4,
   },
 });
 

@@ -57,9 +57,9 @@ const UpgradeCard = ({ upgrade, onMoreInfo }) => {
           <Text style={[styles.cardDescription, { color: '#666666' }]} numberOfLines={2}>
             {description}
           </Text>
-          <View style={[styles.roiContainer, { backgroundColor: `${theme.primary}10` }]}>
-            <Text style={[styles.roiText, { color: theme.primary }]}>+{roiPercentage}%</Text>
-            <Text style={[styles.roiLabel, { color: theme.primary }]}>ROI</Text>
+          <View style={[styles.roiContainer]}>
+            <Text style={[styles.roiText, { color: '#4CAF50' }]}>+{roiPercentage}%</Text>
+            <Text style={[styles.roiLabel, { color: '#4CAF50' }]}>ROI</Text>
           </View>
         </View>
       </View>
@@ -113,7 +113,7 @@ const DetailedUpgradeCard = ({ upgrade }) => {
         </View>
       </View>
       
-      <TouchableOpacity style={[styles.learnMoreButton, { backgroundColor: theme.primary }]}>
+      <TouchableOpacity style={[styles.learnMoreButton, { backgroundColor: GOLD.primary }]}>
         <Text style={styles.learnMoreText}>Learn More</Text>
       </TouchableOpacity>
     </View>
@@ -129,6 +129,33 @@ const PropertyUpgrades = () => {
   const upgrades = [
     {
       id: 1,
+      title: 'Game Room Addition',
+      description: 'Entertainment space with gaming table, console, and recreational activities.',
+      icon: 'game-controller-outline',
+      cost: 8000,
+      roiPercentage: 250,
+      longDescription: "Create an exciting entertainment space with a pool table, gaming console, board games, and other recreational activities. This amenity is highly attractive to families and groups, significantly increasing booking rates and allowing for premium pricing."
+    },
+    {
+      id: 2,
+      title: 'Outdoor Hot Tub',
+      description: 'Luxurious outdoor hot tub with premium jets and LED lighting.',
+      icon: 'water-outline',
+      cost: 4000,
+      roiPercentage: 150,
+      longDescription: "Install a premium outdoor hot tub with therapeutic jets and ambient LED lighting. Hot tubs are consistently among the most sought-after amenities for vacation rentals, allowing you to charge higher rates year-round."
+    },
+    {
+      id: 3,
+      title: 'Premium Kitchen Upgrade',
+      description: 'Full kitchen renovation with high-end appliances and premium fixtures.',
+      icon: 'restaurant-outline',
+      cost: 15000,
+      roiPercentage: 15,
+      longDescription: "Transform your kitchen into a chef's dream with top-of-the-line appliances, custom cabinetry, and premium countertops. This upgrade significantly enhances your property's appeal to luxury travelers who expect nothing but the best."
+    },
+    {
+      id: 4,
       title: 'Smart Home Feature',
       description: 'Adding smart thermostat and other connected devices',
       icon: 'home-outline',
@@ -136,7 +163,7 @@ const PropertyUpgrades = () => {
       roiPercentage: 15
     },
     {
-      id: 2,
+      id: 5,
       title: 'Professional Photography',
       description: 'High-quality photography can increase bookings by 25%. Update your listing with professional shots.',
       icon: 'camera-outline',
@@ -144,7 +171,7 @@ const PropertyUpgrades = () => {
       roiPercentage: 15
     },
     {
-      id: 3,
+      id: 6,
       title: 'Premium Bedding',
       description: 'Upgrade to hotel-quality linens and premium mattress toppers',
       icon: 'bed-outline',
@@ -152,7 +179,7 @@ const PropertyUpgrades = () => {
       roiPercentage: 20
     },
     {
-      id: 4,
+      id: 7,
       title: 'Virtual Check-in',
       description: 'Implement digital check-in system with smart locks for contactless arrivals',
       icon: 'key-outline',
@@ -161,8 +188,24 @@ const PropertyUpgrades = () => {
     }
   ];
 
-  // Sort upgrades by ROI percentage (highest first)
-  const sortedUpgrades = [...upgrades].sort((a, b) => b.roiPercentage - a.roiPercentage);
+  // Calculate total potential revenue from all upgrades
+  const calculateTotalUpgradeValue = () => {
+    return upgrades.reduce((total, upgrade) => {
+      return total + calculateAnnualRevenue(upgrade.cost, upgrade.roiPercentage);
+    }, 0);
+  };
+  
+  // Calculate annual revenue for an upgrade
+  const calculateAnnualRevenue = (upgrade) => {
+    return upgrade.cost * upgrade.roi;
+  };
+
+  // Sort upgrades by annual revenue (highest first)
+  const sortedUpgrades = [...upgrades].sort((a, b) => {
+    const revenueA = calculateAnnualRevenue(a.cost, a.roiPercentage);
+    const revenueB = calculateAnnualRevenue(b.cost, b.roiPercentage);
+    return revenueB - revenueA;
+  });
 
   const openAllUpgradesModal = () => {
     setSelectedUpgrade(null);
@@ -349,15 +392,15 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   roiText: {
-    color: '#4ADE80',
-    fontSize: 14,
-    fontWeight: '600',
+    color: '#4CAF50',
+    fontSize: 15,
+    fontWeight: '700',
     textAlign: 'center',
   },
   roiLabel: {
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: '#4CAF50',
     fontSize: 10,
-    fontWeight: '500',
+    fontWeight: '600',
     textAlign: 'center',
     marginTop: 2,
   },
@@ -379,11 +422,11 @@ const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'flex-end',
   },
   modalContent: {
-    flex: 1,
+    height: '60%',
     backgroundColor: '#121212',
-    marginTop: 50,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
   },
@@ -413,7 +456,9 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   cancelButton: {
-    margin: 16,
+    marginHorizontal: 16,
+    marginTop: 0,
+    marginBottom: 16,
     padding: 14,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
@@ -493,13 +538,13 @@ const styles = StyleSheet.create({
     color: '#4ADE80',
   },
   learnMoreButton: {
-    backgroundColor: 'rgba(182, 148, 76, 0.15)',
+    backgroundColor: GOLD.primary,
     paddingVertical: 14,
     alignItems: 'center',
   },
   learnMoreText: {
-    color: GOLD.primary,
-    fontWeight: '600',
+    color: '#FFFFFF',
+    fontWeight: '700',
     fontSize: 14,
   },
 });

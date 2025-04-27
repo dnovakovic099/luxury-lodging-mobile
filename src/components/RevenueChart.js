@@ -80,7 +80,43 @@ const formatCompactCurrency = (value) => {
 
 // Update SimpleBarChart to position value labels correctly above each bar
 const SimpleBarChart = ({ data }) => {
-  const maxValue = Math.max(...data.map(item => item.y), 300000); // Ensure we have a reasonable max value
+  // Find the maximum value from the data or use a reasonable default
+  const actualMax = Math.max(...data.map(item => item.y), 0);
+  
+  // Round up the max value to a nice number for the chart scale
+  const determineChartMax = (maxVal) => {
+    if (maxVal <= 0) return 300000; // Default if no data
+    
+    // Round to nice numbers based on magnitude
+    if (maxVal <= 5000) return Math.ceil(maxVal / 1000) * 1000;
+    if (maxVal <= 10000) return Math.ceil(maxVal / 2000) * 2000;
+    if (maxVal <= 50000) return Math.ceil(maxVal / 10000) * 10000;
+    if (maxVal <= 100000) return Math.ceil(maxVal / 20000) * 20000;
+    if (maxVal <= 500000) return Math.ceil(maxVal / 100000) * 100000;
+    if (maxVal <= 1000000) return Math.ceil(maxVal / 200000) * 200000;
+    return Math.ceil(maxVal / 500000) * 500000;
+  };
+  
+  const maxValue = determineChartMax(actualMax);
+  
+  // Generate y-axis labels based on the rounded maximum value
+  const generateYAxisLabels = (max) => {
+    const numDivisions = 5; // Number of divisions on y-axis (excluding 0)
+    const labels = [];
+    
+    // Generate labels from 0 to max (in ascending order)
+    for (let i = 0; i <= numDivisions; i++) {
+      const value = (max / numDivisions) * i;
+      labels.push(formatCompactCurrency(value));
+    }
+    
+    return labels;
+  };
+  
+  const yAxisLabels = generateYAxisLabels(maxValue);
+  
+  // Reverse the labels for display (so $0 is at the bottom)
+  const displayLabels = [...yAxisLabels].reverse();
   
   // Calculate bar sizes based on number of items
   const barWidth = data.length <= 7 ? 20 : data.length <= 9 ? 16 : 14;
@@ -97,24 +133,18 @@ const SimpleBarChart = ({ data }) => {
     <View style={styles.simpleChartContainer}>
       {/* Y-axis labels */}
       <View style={styles.yAxisLabels}>
-        <Text style={styles.yAxisText}>$300k</Text>
-        <Text style={styles.yAxisText}>$240k</Text>
-        <Text style={styles.yAxisText}>$180k</Text>
-        <Text style={styles.yAxisText}>$120k</Text>
-        <Text style={styles.yAxisText}>$60k</Text>
-        <Text style={styles.yAxisText}>$0</Text>
+        {displayLabels.map((label, index) => (
+          <Text key={index} style={styles.yAxisText}>{label}</Text>
+        ))}
       </View>
       
       {/* Chart Content Area */}
       <View style={styles.chartContentArea}>
         {/* Grid lines */}
         <View style={styles.gridLinesContainer}>
-          <View style={styles.gridLine} />
-          <View style={styles.gridLine} />
-          <View style={styles.gridLine} />
-          <View style={styles.gridLine} />
-          <View style={styles.gridLine} />
-          <View style={styles.gridLine} />
+          {displayLabels.map((_, index) => (
+            <View key={index} style={styles.gridLine} />
+          ))}
         </View>
         
         {/* Bar columns */}
@@ -693,7 +723,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     width: '100%',
     paddingTop: 25, 
-    paddingBottom: 5,
+    paddingBottom: 15,
     paddingHorizontal: 4,
   },
   yAxisLabels: {

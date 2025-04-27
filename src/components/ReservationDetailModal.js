@@ -142,7 +142,8 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
       parseFloat(finData.claimsProtection || 0)
     ) || (parseFloat(reservation.totalPrice || 0) - parseFloat(reservation.cleaningFee || 0)) / nights;
     
-    return baseRate;
+    // Ensure base rate is never negative
+    return Math.max(0, baseRate);
   };
 
   // Safely calculate the nights count between arrival and departure dates
@@ -236,8 +237,9 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
 
   // Check if payout data is incomplete
   const hasIncompleteFinancialData = () => {
+    // We no longer consider zero payouts as incomplete - we'll display them as $0
     const payout = parseNumber(reservation.hostPayout || reservation.airbnbExpectedPayoutAmount || reservation.ownerPayout);
-    return !payout || payout <= 0;
+    return payout === null || payout === undefined;
   };
 
   const channelInfo = getChannelInfo();
@@ -471,8 +473,8 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
                   </Text>
                 </View>
                 
-                <View style={styles.financialRow}>
-                  <Text style={styles.financialText}>Total Fees</Text>
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalText}>Total Fees</Text>
                   <Text style={[styles.financialValue, styles.boldValue]}>
                     {formatCurrency(
                       parseNumber(reservation.processingFee || reservation.paymentProcessingFee || 0) +
@@ -491,7 +493,7 @@ const ReservationDetailModal = ({ visible, onClose, reservation }) => {
                   <Text style={styles.totalText}>Owner Payout</Text>
                   <Text style={[styles.financialValue, styles.boldValue]}>
                     {incompleteFinancialData ? 
-                      "Pending" : 
+                      "$0.00" : 
                       formatCurrency(parseNumber(reservation.hostPayout || reservation.airbnbExpectedPayoutAmount || reservation.ownerPayout))}
                   </Text>
                 </View>
@@ -636,11 +638,11 @@ const styles = StyleSheet.create({
     marginVertical: 6,
   },
   financialText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#333',
   },
   financialValue: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
     color: '#000',
   },
@@ -672,10 +674,10 @@ const styles = StyleSheet.create({
     borderTopColor: '#eee',
   },
   financialSubheader: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     color: '#BB9F5D',
-    marginBottom: 10,
+    marginBottom: 12,
   },
   boldValue: {
     fontWeight: 'bold',

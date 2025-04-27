@@ -10,6 +10,7 @@ import {
   Dimensions,
   Image,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import PropertyPicker from '../components/PropertyPicker';
@@ -18,6 +19,12 @@ import { getReservationsWithFinancialData } from '../services/api';
 import ReservationDetailModal from '../components/ReservationDetailModal';
 import { saveToCache, loadFromCache, CACHE_KEYS } from '../utils/cacheUtils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { formatCurrency } from '../utils/formatters';
+import ReservationsTable from '../components/ReservationsTable';
+import DateRangePicker from '../components/DateRangePicker';
+import { theme as defaultTheme } from '../theme';
+import { useTheme } from '../context/ThemeContext';
+import { format, startOfDay, isSameDay } from 'date-fns';
 
 // Cache key for calendar bookings
 const CALENDAR_BOOKINGS_CACHE = 'cache_calendar_bookings';
@@ -31,7 +38,8 @@ const DAY_CELL_SIZE = Math.floor(SCREEN_WIDTH / 7);
 const CHANNEL_COLORS = {
   airbnb: '#FF385C',   // Red for Airbnb
   vrbo: '#3D89DE',     // Blue for VRBO
-  default: '#D4A017'   // Darker matte gold for everything else
+  luxurylodging: '#B6944C', // Gold for Luxury Lodging (changed from orange to gold)
+  default: '#B6944C'   // Changed default to gold (instead of dark matte gold) for consistency
 };
 
 // Status values to include in the display - matches owner portal
@@ -39,6 +47,9 @@ const VALID_STATUSES = ['new', 'modified', 'ownerStay'];
 
 // Color for bookings
 const BOOKING_COLOR = '#FF385C';
+
+// Color for past bookings
+const PAST_BOOKING_COLOR = '#9E9E9E'; // Grey color for past reservations
 
 // Memoize date calculations to improve performance
 const useMemoizedDateFunctions = () => {
@@ -54,6 +65,11 @@ const useMemoizedDateFunctions = () => {
 };
 
 const CalendarScreen = ({ navigation }) => {
+  // State for view toggle
+  const [showCalendarView, setShowCalendarView] = useState(true);
+  const { theme = defaultTheme } = useTheme();
+  
+  // Calendar state
   const { listings } = useAuth();
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [allMonths, setAllMonths] = useState([]);
@@ -62,14 +78,25 @@ const CalendarScreen = ({ navigation }) => {
   const [calendarLoading, setCalendarLoading] = useState(false);
   const scrollViewRef = useRef(null);
   const [currentMonthIndex, setCurrentMonthIndex] = useState(0);
+  const [monthPickerVisible, setMonthPickerVisible] = useState(false);
   
-  // Add state for the modal
+  // Reservations state
+  const [reservations, setReservations] = useState([]);
+  const [filteredReservations, setFilteredReservations] = useState([]);
+  const [startDate, setStartDate] = useState(new Date());
+  const [endDate, setEndDate] = useState(null);
+  const [sortBy, setSortBy] = useState('date');
+  const [showFilters, setShowFilters] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  
+  // Common state
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedReservation, setSelectedReservation] = useState(null);
-  
-  // Add state for caching
   const [bookingsFromCache, setBookingsFromCache] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Today's date for highlighting
+  const today = new Date();
 
   const { memoizedIsSameDay } = useMemoizedDateFunctions();
 
@@ -121,6 +148,32 @@ const CalendarScreen = ({ navigation }) => {
     }
   }, [isLoading, allMonths, currentMonthIndex]);
 
+  // Always scroll to current month when the screen becomes visible or when switching back to calendar view
+  useEffect(() => {
+    // Function to scroll to current month
+    const scrollToCurrentMonth = () => {
+      if (allMonths.length > 0 && scrollViewRef.current && currentMonthIndex > 0) {
+        setTimeout(() => {
+          const monthHeight = 450;
+          scrollViewRef.current.scrollTo({
+            y: currentMonthIndex * monthHeight,
+            animated: false
+          });
+        }, 150);
+      }
+    };
+
+    // Scroll when navigation focuses screen
+    const unsubscribe = navigation.addListener('focus', scrollToCurrentMonth);
+    
+    // Also scroll when switching from reservations to calendar view
+    if (showCalendarView && !isLoading) {
+      scrollToCurrentMonth();
+    }
+
+    return unsubscribe;
+  }, [navigation, isLoading, allMonths, currentMonthIndex, showCalendarView]);
+
   useEffect(() => {
     // Generate calendar months
     generateCalendarMonths();
@@ -163,36 +216,29 @@ const CalendarScreen = ({ navigation }) => {
 
   const generateCalendarMonths = () => {
     const months = [];
-    const today = new Date();
     
-    // Generate 12 months (6 before current month and 6 after)
-    const currentMonth = today.getMonth();
-    const currentYear = today.getFullYear();
+    // Generate 13 months total (current month plus 6 before and 6 after)
+    const currentDate = new Date(today);
     
-    // Start 6 months before current month
-    for (let i = -6; i <= 6; i++) {
-      let monthNum = (currentMonth + i) % 12;
-      if (monthNum < 0) monthNum += 12;
+    // Start with 6 months before current month
+    const startDate = new Date(currentDate);
+    startDate.setMonth(currentDate.getMonth() - 6);
+    
+    // Create array of consecutive months
+    for (let i = 0; i < 13; i++) {
+      const monthDate = new Date(startDate);
+      monthDate.setMonth(startDate.getMonth() + i);
       
-      // Calculate year offset
-      let yearOffset = Math.floor((currentMonth + i) / 12);
-      if (currentMonth + i < 0 && (currentMonth + i) % 12 !== 0) {
-        yearOffset -= 1;
-      }
-      
-      const year = currentYear + yearOffset;
       months.push({
-        date: new Date(year, monthNum, 1),
-        index: i + 6 // Add 6 to make current month index 6
+        date: monthDate,
+        index: i
       });
     }
     
-    // Sort the months chronologically
-    months.sort((a, b) => a.date - b.date);
-    
-    // Find index of current month
+    // Find index of current month (should be 6 if everything works correctly)
     const currentMonthIndex = months.findIndex(
-      month => month.date.getMonth() === currentMonth && month.date.getFullYear() === currentYear
+      month => month.date.getMonth() === currentDate.getMonth() && 
+               month.date.getFullYear() === currentDate.getFullYear()
     );
     
     setCurrentMonthIndex(currentMonthIndex !== -1 ? currentMonthIndex : 6);
@@ -349,6 +395,13 @@ const CalendarScreen = ({ navigation }) => {
                     lowerChannel.includes('vrbo') || lowerChannel.includes('homeaway') || lowerChannel.includes('expedia')) {
               channelType = 'vrbo';
             }
+            // Check for Luxury Lodging
+            else if (lowerChannelName.includes('luxury') || 
+                     lowerSourceType.includes('luxury') || 
+                     lowerSourceName.includes('luxury') || 
+                     lowerChannel.includes('luxury')) {
+              channelType = 'luxurylodging';
+            }
             
             // Use the appropriate color based on channel
             const bookingColor = CHANNEL_COLORS[channelType];
@@ -374,17 +427,25 @@ const CalendarScreen = ({ navigation }) => {
               reservationDate: res.reservationDate || res.bookingDate || '',
               phone: res.phone || '',
               
-              // Essential financial data
-              ownerPayout: res.ownerPayout || 0,
-              baseRate: res.baseRate || res.airbnbListingBasePrice || (res.financialData ? res.financialData.baseRate : 0) || 0,
-              cleaningFee: res.cleaningFee || res.airbnbListingCleaningFee || (res.financialData ? res.financialData.cleaningFeeValue : 0) || 0,
+              // Financial data - preserve ALL financial fields without transforming them
+              ownerPayout: res.ownerPayout,
+              baseRate: res.baseRate || res.airbnbListingBasePrice,
+              cleaningFee: res.cleaningFee || res.airbnbListingCleaningFee,
+              serviceFee: res.serviceFee,
+              hostChannelFee: res.hostChannelFee,
+              channelFee: res.channelFee,
+              managementFee: res.managementFee,
+              pmCommission: res.pmCommission,
+              airbnbExpectedPayoutAmount: res.airbnbExpectedPayoutAmount,
+              processingFee: res.processingFee || res.paymentProcessingFee,
+              totalPrice: res.totalPrice,
+              guestTotal: res.guestTotal,
+              occupancyTaxes: res.occupancyTaxes,
+              tourismTax: res.tourismTax,
+              cityTax: res.cityTax,
               
-              // Store minimal financial data
-              financialData: res.financialData ? {
-                baseRate: res.financialData.baseRate,
-                cleaningFeeValue: res.financialData.cleaningFeeValue,
-                managementFee: res.financialData.managementFee
-              } : null,
+              // Store complete financial data object rather than just a few fields
+              financialData: res.financialData || null,
             };
           })
           .filter(booking => booking !== null);
@@ -457,6 +518,11 @@ const CalendarScreen = ({ navigation }) => {
     // Reset cached state when property changes
     setBookingsFromCache(false);
     setSelectedProperty(propertyId);
+    
+    // If in reservation view, also refresh the reservations
+    if (!showCalendarView) {
+      fetchReservationsForTable();
+    }
   };
 
   const getDaysInMonth = (date) => {
@@ -481,6 +547,14 @@ const CalendarScreen = ({ navigation }) => {
 
   // Replace existing isSameDay function with memoized version
   const isSameDay = memoizedIsSameDay;
+
+  // Check if a date is in the past
+  const isPastDate = (date) => {
+    if (!date) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset time portion for accurate comparison
+    return date < today;
+  };
 
   // Check if date falls within a booking
   const getBookingForDate = (date) => {
@@ -518,7 +592,6 @@ const CalendarScreen = ({ navigation }) => {
         
         // Check if targetDate is within booking range (inclusive)
         const isInRange = targetTime >= startTime && targetTime <= endTime;
-    
         
         return isInRange;
       });
@@ -581,91 +654,69 @@ const CalendarScreen = ({ navigation }) => {
     }
   };
 
-  // Handle booking click to show reservation details
-  const handleBookingClick = (booking) => {
-    if (!booking) return;
+  // Calculate booking length (nights)
+  const getBookingLengthInDays = (booking) => {
+    if (!booking || !booking.startDate || !booking.endDate) return 0;
+    
+    try {
+      const startDate = new Date(
+        booking.startDate.getFullYear(),
+        booking.startDate.getMonth(),
+        booking.startDate.getDate()
+      );
+      
+      const endDate = new Date(
+        booking.endDate.getFullYear(),
+        booking.endDate.getMonth(),
+        booking.endDate.getDate()
+      );
+      
+      // Calculate days between (inclusive of end date)
+      const diffTime = endDate.getTime() - startDate.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+      
+      return diffDays;
+    } catch (error) {
+      console.error('Error calculating booking length:', error);
+      return 0;
+    }
+  };
 
-    // Create a reservation object mapping the API response to our modal fields
-    const reservation = {
-      id: booking.id,
-      // Guest information
-      guestName: booking.guestName || booking.guestFirstName + ' ' + booking.guestLastName || 'Guest',
-      guestFirstName: booking.guestFirstName,
-      guestLastName: booking.guestLastName,
-      guestEmail: booking.guestEmail,
-      guestPhone: booking.phone,
-      guestPicture: booking.guestPicture,
-      
-      // Property information
-      propertyLocation: selectedPropertyData?.location || selectedPropertyData?.city || 
-                       (selectedPropertyData?.name?.split('-')?.[0]?.trim()) || 'Property',
-      propertyName: booking.listingName || selectedPropertyData?.name || 'Property',
-      propertyDescription: selectedPropertyData?.description || '',
-      
-      // Reservation dates
-      arrivalDate: booking.startDate || new Date(booking.arrivalDate),
-      departureDate: booking.endDate || new Date(booking.departureDate),
-      bookingDate: new Date(booking.reservationDate || Date.now()),
-      
-      // Guest counts
-      adultCount: booking.adults || booking.numberOfGuests || 1,
-      infantCount: booking.infants || 0,
-      childrenCount: booking.children || 0,
-      
-      // Booking details
-      confirmationCode: booking.confirmationCode || booking.channelReservationId || 'N/A',
-      cancellationPolicy: booking.airbnbCancellationPolicy || booking.cancellationPolicy || 'Standard',
-      phoneNumber: booking.phone || null,
-      nights: booking.nights || calculateBookingLength(booking),
-      
-      // Financial data for Guest Paid section
-      nightlyRate: booking.baseRate ? booking.baseRate / (booking.nights || 1) : 0,
-      cleaningFee: booking.cleaningFee || 0,
-      serviceFee: booking.serviceFee || 
-                  booking.hostChannelFee || 
-                  booking.financialData?.hostChannelFee || 
-                  booking.financialData?.VRBOChannelFee || 
-                  booking.channelFee || 
-                  0,
-      occupancyTaxes: booking.occupancyTaxes || booking.tourismTax || booking.cityTax || 0,
-      guestTotal: booking.guestTotal || booking.totalPrice || 0,
-      
-      // Financial data for Host Payout section
-      baseRate: parseFloat(booking.baseRate) || 0,
-      processingFee: booking.financialData?.PaymentProcessing ? parseFloat(booking.financialData.PaymentProcessing) : 0,
-      channelFee: parseFloat(
-        booking.hostChannelFee || 
-        booking.financialData?.hostChannelFee || 
-        booking.financialData?.VRBOChannelFee ||
-        booking.channelFee || 
-        0
-      ),
-      managementFee: parseFloat(
-        booking.managementFee || 
-        booking.pmCommission || 
-        booking.financialData?.managementFee ||
-        booking.financialData?.pmCommission ||
-        booking.financialData?.managementFeeAirbnb ||
-        0
-      ),
-      
-      // Final payout
-      hostPayout: parseFloat(booking.ownerPayout) || parseFloat(booking.airbnbExpectedPayoutAmount) || 0,
-      
-      // Channel information
-      channelName: booking.channelName || '',
-      channel: booking.channel || '',
-      status: booking.status || '',
-      paymentStatus: booking.paymentStatus || '',
-      
-      // Raw financial data
-      financialData: booking.financialData || null,
-    };
+  // Format currency for display
+  const formatMoney = (amount) => {
+    if (!amount || isNaN(amount)) return '$0';
     
-    // Set the selected reservation and show the modal
-    setSelectedReservation(reservation);
+    try {
+      // Using the formatCurrency utility
+      return formatCurrency(amount);
+    } catch (error) {
+      // Fallback to basic formatting
+      return '$' + parseInt(amount).toLocaleString();
+    }
+  };
+
+  // Calculate total revenue for a specific month
+  const calculateMonthlyRevenue = (monthDate) => {
+    if (!bookings || !Array.isArray(bookings)) return 0;
     
-    setModalVisible(true);
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    
+    // Filter bookings that start in this month
+    const monthBookings = bookings.filter(booking => {
+      if (!booking || !booking.startDate) return false;
+      
+      return booking.startDate.getFullYear() === year && 
+             booking.startDate.getMonth() === month;
+    });
+    
+    // Sum the owner payouts
+    const total = monthBookings.reduce((sum, booking) => {
+      const payout = parseFloat(booking.ownerPayout || 0);
+      return sum + (isNaN(payout) ? 0 : payout);
+    }, 0);
+    
+    return total;
   };
 
   // Optimize renderDay for better performance
@@ -676,12 +727,25 @@ const CalendarScreen = ({ navigation }) => {
     const booking = getBookingForDate(date);
     const segmentType = booking ? getBookingSegmentType(date, booking) : null;
     
+    // Check if this date is today
+    const isToday = isSameDay(date, today);
+    
+    // Check if this is a past date
+    const isPast = isPastDate(date);
+    
     // Only show guest name and initial on the first day of booking
     const isFirstDay = segmentType === 'start' || segmentType === 'single';
     
     // Prepare guest name and initial
     let guestInitial = 'G';
     let guestName = 'Guest';
+    
+    // Calculate booking length for short stay check
+    const bookingLength = booking ? getBookingLengthInDays(booking) : 0;
+    const isShortStay = bookingLength <= 3; // 3 days or less is a short stay
+    
+    // Get owner payout amount if available
+    const ownerPayout = booking && booking.ownerPayout ? formatMoney(booking.ownerPayout) : null;
     
     if (booking && booking.guestName) {
       const trimmedName = booking.guestName.trim();
@@ -693,17 +757,33 @@ const CalendarScreen = ({ navigation }) => {
       }
     }
     
+    // Check if this is a Luxury Lodging booking
+    const isLuxuryLodging = booking && 
+      (booking.channelName?.toLowerCase().includes('luxury') || 
+       booking.channel === 'luxurylodging');
+    
+    // Determine booking color (grey for past reservations unless it's Luxury Lodging)
+    const bookingColor = booking ? 
+      (isPast && !isLuxuryLodging ? PAST_BOOKING_COLOR : booking.color) : null;
+    
     // Create cell content
     const cellContent = (
       <>
-        <Text style={styles.dayNumber}>{dayNum}</Text>
+        <Text style={[
+          styles.dayNumber, 
+          isToday && styles.todayNumber
+        ]}>
+          {dayNum}
+        </Text>
+        
+        {isToday && <View style={styles.todayIndicator} />}
         
         {booking && segmentType && (
           <View 
             style={[
               styles.bookingIndicator, 
               styles[`booking${segmentType.charAt(0).toUpperCase() + segmentType.slice(1)}`],
-              { backgroundColor: booking.color }
+              { backgroundColor: bookingColor }
             ]}
           >
             {isFirstDay && (
@@ -719,36 +799,40 @@ const CalendarScreen = ({ navigation }) => {
     return (
       <View style={styles.dayCellContainer}>
         <TouchableOpacity 
-          style={styles.dayCell}
+          style={[
+            styles.dayCell,
+            isToday && styles.todayCell
+          ]}
           onPress={() => booking && handleBookingClick(booking)}
           disabled={!booking}
         >
           {cellContent}
         </TouchableOpacity>
         
-        {/* Render name separately to allow it to float over cell boundaries */}
-        {booking && isFirstDay && (
-          <View style={styles.nameOverlay}>
-            <Text 
-              style={styles.nameOverlayText}
-              numberOfLines={1}
-              ellipsizeMode="tail">
-              {guestName}
-            </Text>
+        {/* Display amount for all reservations using the short-stay style */}
+        {booking && isFirstDay && ownerPayout && (
+          <View style={styles.amountOnlyOverlay}>
+            <Text style={styles.amountOnlyText}>{ownerPayout}</Text>
           </View>
         )}
       </View>
     );
-  }, [bookings, selectedProperty]);
+  }, [bookings, selectedProperty, today]);
 
   const renderMonthCalendar = (monthDate) => {
     const days = getDaysInMonth(monthDate);
     const monthName = monthDate.toLocaleString('default', { month: 'long' });
     const year = monthDate.getFullYear();
+    
+    // Calculate the total revenue for this month
+    const monthlyTotal = calculateMonthlyRevenue(monthDate);
 
     return (
       <View style={styles.monthContainer}>
-        <Text style={styles.monthTitle}>{monthName} {year}</Text>
+        <View style={styles.monthHeaderRow}>
+          <Text style={styles.monthTitle}>{monthName} {year}</Text>
+          <Text style={styles.monthTotal}>{formatMoney(monthlyTotal)}</Text>
+        </View>
         
         <View style={styles.calendarHeader}>
           {daysOfWeek.map((day, index) => (
@@ -769,30 +853,6 @@ const CalendarScreen = ({ navigation }) => {
 
   // Find the selected property data
   const selectedPropertyData = formattedListings.find(p => p.id === selectedProperty) || formattedListings[0];
-
-  // Create a function to calculate booking length in days
-  const calculateBookingLength = (booking) => {
-    if (!booking || !booking.startDate || !booking.endDate) return 1;
-    
-    const startDate = new Date(
-      booking.startDate.getFullYear(),
-      booking.startDate.getMonth(),
-      booking.startDate.getDate()
-    );
-    
-    const endDate = new Date(
-      booking.endDate.getFullYear(),
-      booking.endDate.getMonth(),
-      booking.endDate.getDate()
-    );
-    
-    // Calculate difference in days
-    const differenceInTime = endDate.getTime() - startDate.getTime();
-    const differenceInDays = differenceInTime / (1000 * 3600 * 24);
-    
-    // Return at least 1 day (for same-day bookings)
-    return Math.max(1, differenceInDays + 1);
-  };
 
   // Optimize bookings processing by reducing unnecessary operations
   const loadBookingsFromCache = async () => {
@@ -874,124 +934,522 @@ const CalendarScreen = ({ navigation }) => {
     }
   };
 
-  // Force refresh all calendar data
-  const forceRefreshCalendarData = async () => {
-    try {
-      // Clear calendar cache
-      if (DEBUG_CACHE) console.log('Calendar: Clearing calendar cache...');
-      await clearCache(`${CALENDAR_BOOKINGS_CACHE}_${selectedProperty}`);
+  // Handle booking click to show reservation details
+  const handleBookingClick = (booking) => {
+    if (!booking) return;
+    
+    // Debug logging for financial data
+    console.log('RAW BOOKING FINANCIAL DATA:', {
+      // Direct properties
+      baseRate: booking.baseRate,
+      cleaningFee: booking.cleaningFee,
+      ownerPayout: booking.ownerPayout,
+      processingFee: booking.processingFee,
+      channelFee: booking.channelFee,
+      hostChannelFee: booking.hostChannelFee,
+      managementFee: booking.managementFee,
+      pmCommission: booking.pmCommission,
       
-      setBookingsFromCache(false);
-      setRefreshing(true);
+      // Nested data
+      hasFinancialData: !!booking.financialData,
+      financialData_baseRate: booking.financialData?.baseRate,
+      financialData_cleaningFeeValue: booking.financialData?.cleaningFeeValue,
+      financialData_paymentProcessing: booking.financialData?.PaymentProcessing,
+      financialData_managementFee: booking.financialData?.managementFee
+    });
+    
+    // Process financial data properly - similar to ReservationsScreen approach
+    const extractFinancialData = () => {
+      // Check for nested financial data
+      const financialData = booking.financialData || {};
       
-      // Fetch new bookings
-      await fetchBookingsForCalendar();
+      // Process various fee fields
+      return {
+        // Base rate
+        baseRate: parseFloat(booking.baseRate || financialData.baseRate || 0),
+        
+        // Cleaning fee
+        cleaningFee: parseFloat(booking.cleaningFee || financialData.cleaningFeeValue || 0),
+        
+        // Processing fee
+        processingFee: parseFloat(
+          financialData.PaymentProcessing || 
+          financialData.paymentProcessing || 
+          booking.paymentProcessingFee || 
+          booking.processingFee || 
+          0
+        ),
+        
+        // Channel fee
+        channelFee: parseFloat(
+          booking.channelFee || 
+          booking.hostChannelFee ||
+          booking.VRBOChannelFee ||
+          financialData.channelFee || 
+          financialData.hostChannelFee ||
+          financialData.VRBOChannelFee ||
+          0
+        ),
+        
+        // Management fee
+        managementFee: parseFloat(
+          booking.pmCommission || 
+          booking.managementFee || 
+          financialData.pmCommission || 
+          financialData.managementFee || 
+          financialData.managementFeeAirbnb || 
+          0
+        ),
+        
+        // Owner payout
+        ownerPayout: parseFloat(booking.ownerPayout || booking.airbnbExpectedPayoutAmount || 0),
+        
+        // Total price
+        totalPrice: parseFloat(booking.guestTotal || booking.totalPrice || 0)
+      };
+    };
+    
+    const financials = extractFinancialData();
+    
+    // Create a reservation object mapping the API response to our modal fields
+    const reservation = {
+      id: booking.id,
+      // Guest information
+      guestName: booking.guestName || booking.guestFirstName + ' ' + booking.guestLastName || 'Guest',
+      guestFirstName: booking.guestFirstName,
+      guestLastName: booking.guestLastName,
+      guestEmail: booking.guestEmail,
+      guestPhone: booking.phone,
+      guestPicture: booking.guestPicture,
       
-      setRefreshing(false);
-    } catch (error) {
-      console.error('Error refreshing calendar data:', error);
-      setRefreshing(false);
+      // Property information
+      propertyLocation: selectedPropertyData?.location || selectedPropertyData?.city || 
+                       (selectedPropertyData?.name?.split('-')?.[0]?.trim()) || 'Property',
+      propertyName: booking.listingName || selectedPropertyData?.name || 'Property',
+      propertyDescription: selectedPropertyData?.description || '',
+      
+      // Reservation dates
+      arrivalDate: booking.startDate || new Date(booking.arrivalDate),
+      departureDate: booking.endDate || new Date(booking.departureDate),
+      bookingDate: new Date(booking.reservationDate || Date.now()),
+      
+      // Guest counts
+      adultCount: booking.adults || booking.numberOfGuests || 1,
+      infantCount: booking.infants || 0,
+      childrenCount: booking.children || 0,
+      
+      // Booking details
+      confirmationCode: booking.confirmationCode || booking.channelReservationId || 'N/A',
+      cancellationPolicy: booking.airbnbCancellationPolicy || booking.cancellationPolicy || 'Standard',
+      phoneNumber: booking.phone || null,
+      nights: booking.nights || calculateBookingLength(booking),
+      
+      // Financial data - use extracted financial values
+      baseRate: financials.baseRate,
+      cleaningFee: financials.cleaningFee,
+      processingFee: financials.processingFee,
+      channelFee: financials.channelFee,
+      managementFee: financials.managementFee,
+      hostPayout: financials.ownerPayout,
+      
+      // Additional financial fields for guest paid section
+      nightlyRate: financials.baseRate / (booking.nights || 1),
+      serviceFee: financials.channelFee,
+      occupancyTaxes: parseFloat(booking.occupancyTaxes || booking.tourismTax || booking.cityTax || 0),
+      guestTotal: financials.totalPrice,
+      
+      // Original fields to preserve compatibility
+      ownerPayout: booking.ownerPayout,
+      airbnbExpectedPayoutAmount: booking.airbnbExpectedPayoutAmount,
+      channelName: booking.channelName || '',
+      channel: booking.channel || '',
+      status: booking.status || '',
+      paymentStatus: booking.paymentStatus || '',
+      
+      // Raw financial data
+      financialData: booking.financialData || null,
+    };
+    
+    // Log the processed financial data
+    console.log('PROCESSED FINANCIAL DATA:', {
+      baseRate: reservation.baseRate,
+      cleaningFee: reservation.cleaningFee,
+      processingFee: reservation.processingFee,
+      channelFee: reservation.channelFee,
+      managementFee: reservation.managementFee,
+      hostPayout: reservation.hostPayout
+    });
+    
+    // Set the selected reservation and show the modal
+    setSelectedReservation(reservation);
+    setModalVisible(true);
+  };
+
+  // Create a function to calculate booking length in days
+  const calculateBookingLength = (booking) => {
+    if (!booking || !booking.startDate || !booking.endDate) return 1;
+    
+    const startDate = new Date(
+      booking.startDate.getFullYear(),
+      booking.startDate.getMonth(),
+      booking.startDate.getDate()
+    );
+    
+    const endDate = new Date(
+      booking.endDate.getFullYear(),
+      booking.endDate.getMonth(),
+      booking.endDate.getDate()
+    );
+    
+    // Calculate difference in days
+    const differenceInTime = endDate.getTime() - startDate.getTime();
+    const differenceInDays = differenceInTime / (1000 * 3600 * 24);
+    
+    // Return at least 1 day (for same-day bookings)
+    return Math.max(1, differenceInDays + 1);
+  };
+
+  // Function to jump to a specific month
+  const jumpToMonth = (index) => {
+    if (index >= 0 && index < allMonths.length && scrollViewRef.current) {
+      // Calculate position based on month height
+      const monthHeight = 450;
+      scrollViewRef.current.scrollTo({
+        y: index * monthHeight,
+        animated: true
+      });
+      setMonthPickerVisible(false);
     }
   };
-  
-  // Optimize the fetchBookingsForCalendar function
-  const fetchBookingsForCalendar = useCallback(async () => {
+
+  // Function to fetch reservations for table view
+  const fetchReservationsForTable = async () => {
     if (!selectedProperty) return;
     
+    setIsLoading(true);
+    
     try {
-      // First try to load from cache - critical to load cache before setting any loading states
-      const loadedFromCache = await loadBookingsFromCache();
+      // Calculate date range for 6 months before and after
+      const today = new Date();
       
-      // Only show loading indicators if we don't have cached data
-      if (!loadedFromCache) {
-        // No cache, set loading states
-        setCalendarLoading(true);
-        setIsLoading(true);
+      const startDate = new Date(today);
+      startDate.setMonth(today.getMonth() - 6);
+      startDate.setDate(1);
+      
+      const endDate = new Date(today);
+      endDate.setMonth(today.getMonth() + 6);
+      endDate.setDate(31);
+      
+      // Format dates for API
+      const fromDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
+      const toDateStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+      
+      // Prepare params for API call
+      const params = {
+        listingMapIds: [selectedProperty],
+        fromDate: fromDateStr,
+        toDate: toDateStr,
+        dateType: 'arrival',
+        statuses: VALID_STATUSES
+      };
+      
+      // Fetch reservations from API
+      const result = await getReservationsWithFinancialData(params);
+      
+      if (result?.reservations && Array.isArray(result.reservations)) {
+        // Filter reservations using the same logic as calendar view
+        const filteredReservations = result.reservations.filter(res => {
+          // Validate that we have both arrival and departure dates
+          const hasArrival = !!res.arrivalDate || !!res.checkInDate;
+          const hasDeparture = !!res.departureDate || !!res.checkOutDate;
+          
+          // Strict status check
+          const hasValidStatus = VALID_STATUSES.includes(res.status);
+          
+          // Only include reservations with valid dates and status
+          return hasArrival && hasDeparture && hasValidStatus;
+        });
         
-        // No cache, fetch from API with loading indicators shown
-        await fetchReservations();
+        console.log(`Filtered ${result.reservations.length} reservations down to ${filteredReservations.length} with valid statuses`);
         
-        // Clear loading states after fetch completes
-        setCalendarLoading(false);
-        setIsLoading(false);
-      } else {
-        // We have cache, don't show loading indicators
-        // and fetch in the background after a short delay
-        setTimeout(() => {
-          // Don't set isLoading to true here - we already have data to show
-          fetchReservations().finally(() => {
-            // Ensure loading indicators are cleared when done
-            setCalendarLoading(false);
-            setIsLoading(false);
-          });
-        }, 500);
+        setReservations(filteredReservations);
+        // Apply initial sort when loading data
+        setFilteredReservations(sortReservations(filteredReservations, sortBy));
       }
     } catch (error) {
-      console.error('Error fetching bookings for calendar:', error);
-      // Always clear loading states on error
-      setCalendarLoading(false);
+      console.error('Error fetching reservations for table:', error);
+    } finally {
       setIsLoading(false);
     }
-  }, [selectedProperty]);
+  };
+
+  // Add a function to sort reservations
+  const sortReservations = (reservationsToSort, sortType) => {
+    if (!reservationsToSort || !reservationsToSort.length) return [];
+    
+    console.log(`Sorting ${reservationsToSort.length} reservations by ${sortType}`);
+    
+    return [...reservationsToSort].sort((a, b) => {
+      if (sortType === 'date') {
+        // Sort by arrival date (newest first)
+        const dateA = new Date(a.arrivalDate || a.checkInDate || 0);
+        const dateB = new Date(b.arrivalDate || b.checkInDate || 0);
+        return dateB - dateA;
+      } else {
+        // Sort by amount (highest first)
+        // Get the owner payout amount with more robust parsing
+        const getPayoutAmount = (reservation) => {
+          // Try multiple possible fields for owner payout
+          let amount = reservation.ownerPayout;
+          
+          // If the value is a string with a dollar sign, remove it
+          if (typeof amount === 'string' && amount.includes('$')) {
+            amount = amount.replace(/[$,]/g, '');
+          }
+          
+          // Parse to float and handle NaN
+          const parsedAmount = parseFloat(amount);
+          return isNaN(parsedAmount) ? 0 : parsedAmount;
+        };
+        
+        const amountA = getPayoutAmount(a);
+        const amountB = getPayoutAmount(b);
+        
+        return amountB - amountA;
+      }
+    });
+  };
+
+  // Update the handleSort function to force a re-render after sorting
+  const handleSort = () => {
+    const newSortBy = sortBy === 'date' ? 'amount' : 'date';
+    console.log(`Changing sort from ${sortBy} to ${newSortBy}`);
+    
+    // First update the sort type
+    setSortBy(newSortBy);
+    
+    // Then immediately sort the current filtered reservations with the new sort type
+    const newlySorted = sortReservations([...filteredReservations], newSortBy);
+    console.log(`Sorted reservations, new length: ${newlySorted.length}`);
+    
+    // Update state with sorted reservations to trigger re-render
+    setFilteredReservations(newlySorted);
+  };
+
+  // Update the filterReservationsByDate function to use the updated sorting
+  const filterReservationsByDate = (start, end) => {
+    if (!reservations.length) return [];
+    
+    // First filter by date
+    let filtered = reservations.filter(reservation => {
+      if (!reservation.arrivalDate && !reservation.checkInDate) return false;
+      
+      const arrivalDate = new Date(reservation.arrivalDate || reservation.checkInDate);
+      
+      if (start && end) {
+        return arrivalDate >= start && arrivalDate <= end;
+      } else if (start) {
+        return arrivalDate >= start;
+      }
+      
+      return true;
+    });
+
+    console.log(`Filtered ${reservations.length} reservations to ${filtered.length} by date range`);
+    
+    // Then sort the filtered results
+    return sortReservations(filtered, sortBy);
+  };
+
+  // Update the useEffect to also trigger on sortBy changes
+  useEffect(() => {
+    if (!showCalendarView && reservations.length) {
+      const filtered = filterReservationsByDate(startDate, endDate);
+      setFilteredReservations(filtered);
+    }
+  }, [startDate, endDate, reservations, showCalendarView, sortBy]);
+  
+  // Effect to load reservations when switching to table view
+  useEffect(() => {
+    if (!showCalendarView && selectedProperty) {
+      fetchReservationsForTable();
+    }
+  }, [showCalendarView, selectedProperty]);
+
+  // Render the reservations table view
+  const renderReservationsView = () => {
+    return (
+      <View style={styles.container}>
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#FF385C" />
+            <Text style={styles.loadingText}>Loading reservations...</Text>
+          </View>
+        ) : (
+          <View style={{flex: 1}}>
+            {showDatePicker && (
+              <View style={styles.datePickerContainer}>
+                <DateRangePicker
+                  startDate={startDate}
+                  endDate={endDate}
+                  onStartDateChange={setStartDate}
+                  onEndDateChange={setEndDate}
+                  onClose={() => setShowDatePicker(false)}
+                />
+              </View>
+            )}
+            
+            <View style={styles.filtersRow}>
+              <TouchableOpacity 
+                style={styles.dateFilterButton}
+                onPress={() => setShowDatePicker(!showDatePicker)}
+              >
+                <Icon name="calendar-outline" size={18} color="#666" />
+                <Text style={styles.dateFilterText}>
+                  {startDate ? format(startDate, 'MMM d, yyyy') : 'All dates'}
+                  {endDate ? ` - ${format(endDate, 'MMM d, yyyy')}` : ''}
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.sortButton}
+                onPress={handleSort}
+              >
+                <Icon name={sortBy === 'date' ? 'calendar' : 'cash-outline'} size={18} color="#666" />
+                <Text style={styles.sortText}>
+                  Sort by {sortBy === 'date' ? 'Date' : 'Amount'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            
+            <ReservationsTable
+              reservations={filteredReservations}
+              sortBy={sortBy}
+              onRefresh={() => fetchReservationsForTable()}
+              refreshing={refreshing}
+              onRowPress={handleBookingClick}
+            />
+          </View>
+        )}
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       
+      {/* Ultra-sleek integrated header */}
       <View style={styles.header}>
-        <View style={styles.leftHeader}>
-          <View style={styles.propertyPickerContainer}>
+        <View style={styles.headerMain}>
+          <View style={styles.headerLeft}>
             <PropertyPicker 
               selectedProperty={selectedProperty}
               onValueChange={handlePropertyChange}
               properties={formattedListings}
-              loading={!formattedListings || formattedListings.length === 0}
+              loading={isLoading && !bookingsFromCache}
               showSelectedImage={true}
+              style={styles.propertyPicker}
             />
+            
+            {/* Month picker button - always visible */}
+            <TouchableOpacity 
+              style={styles.monthButton}
+              onPress={() => setMonthPickerVisible(!monthPickerVisible)}
+            >
+              <Icon name="calendar-outline" size={20} color="#666" />
+              <Text style={styles.monthButtonText}>
+                {allMonths[currentMonthIndex] ? 
+                  allMonths[currentMonthIndex].toLocaleString('default', { month: 'short', year: '2-digit' }) : 
+                  'Month'}
+              </Text>
+              <Icon name="chevron-down-outline" size={16} color="#666" />
+            </TouchableOpacity>
           </View>
         </View>
         
-        {/* Improved refresh button with loading indicator and long-press for force refresh */}
-        <TouchableOpacity 
-          onPress={refreshBookings}
-          onLongPress={forceRefreshCalendarData}
-          delayLongPress={800}
-          style={styles.refreshButton}
-        >
-          {isLoading ? (
-            <ActivityIndicator size="small" color="#333" />
-          ) : (
-            <Icon name="refresh" size={24} color="#333" />
-          )}
-        </TouchableOpacity>
+        {/* Segmented control style tabs */}
+        <View style={styles.segmentedControl}>
+          <TouchableOpacity 
+            style={[
+              styles.segmentButton, 
+              showCalendarView ? styles.activeSegment : null
+            ]}
+            onPress={() => setShowCalendarView(true)}
+          >
+            <Text style={[
+              styles.segmentText, 
+              showCalendarView ? styles.activeSegmentText : null
+            ]}>Calendar</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[
+              styles.segmentButton, 
+              !showCalendarView ? styles.activeSegment : null
+            ]}
+            onPress={() => setShowCalendarView(false)}
+          >
+            <Text style={[
+              styles.segmentText, 
+              !showCalendarView ? styles.activeSegmentText : null
+            ]}>Reservations</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       
-      {/* Render condition - now prioritizing cached data display */}
+      {/* Month Picker Dropdown */}
+      {monthPickerVisible && (
+        <View style={styles.monthPickerContainer}>
+          <ScrollView style={styles.monthPickerScroll}>
+            {allMonths.map((month, index) => (
+              <TouchableOpacity 
+                key={index} 
+                style={[
+                  styles.monthPickerItem,
+                  index === currentMonthIndex && styles.monthPickerItemSelected
+                ]}
+                onPress={() => {
+                  jumpToMonth(index);
+                  setMonthPickerVisible(false);
+                }}
+              >
+                <Text style={[
+                  styles.monthPickerText,
+                  index === currentMonthIndex && styles.monthPickerTextSelected
+                ]}>
+                  {month.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+      
+      {/* Show either Calendar or Reservations view */}
       {(isLoading && !bookingsFromCache) ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#FF385C" />
-          <Text style={styles.loadingText}>Loading reservations...</Text>
+          <Text style={styles.loadingText}>
+            Loading {showCalendarView ? 'reservations' : 'data'}...
+          </Text>
         </View>
       ) : (
-        <ScrollView 
-          ref={scrollViewRef}
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={true}
-        >
-          {/* Small loading indicator when refreshing with cached data */}
-          {/* {(isLoading || refreshing) && bookingsFromCache && (
-            <View style={styles.miniLoadingContainer}>
-              <ActivityIndicator size="small" color="#FF385C" />
-              <Text style={styles.miniLoadingText}>Updating in background...</Text>
-            </View>
-          )} */}
-          
-          {allMonths.map((monthDate, index) => (
-            <React.Fragment key={index}>
-              {renderMonthCalendar(monthDate)}
-            </React.Fragment>
-          ))}
-        </ScrollView>
+        showCalendarView ? (
+          <ScrollView 
+            ref={scrollViewRef}
+            style={styles.scrollView}
+            showsVerticalScrollIndicator={true}
+          >
+            {allMonths.map((monthDate, index) => (
+              <React.Fragment key={index}>
+                {renderMonthCalendar(monthDate)}
+              </React.Fragment>
+            ))}
+          </ScrollView>
+        ) : (
+          renderReservationsView()
+        )
       )}
       
       {/* Reservation detail modal */}
@@ -1010,33 +1468,89 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   header: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E8E8E8',
+  },
+  headerMain: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
     justifyContent: 'space-between',
+  },
+  propertyPicker: {
+    flex: 0.68,
+  },
+  monthButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F6F6F6',
+    borderRadius: 18,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1, 
-    borderBottomColor: '#E0E0E0',
+    marginLeft: 8,
+    flex: 0.3,
   },
-  leftHeader: {
+  monthButtonText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#444',
+    marginHorizontal: 6,
+  },
+  headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
   },
-  propertyPickerContainer: {
-    flex: 1,
-  },
-  propertyImage: {
+  iconButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    marginRight: 8,
-  },
-  placeholderImage: {
-    backgroundColor: '#F5F5F5',
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 8,
+    backgroundColor: '#F6F6F6',
+  },
+  segmentedControl: {
+    flexDirection: 'row',
+    height: 32,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 8,
+    padding: 2,
+    alignSelf: 'center',
+  },
+  segmentButton: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 6,
+    paddingHorizontal: 16,
+    minWidth: 120,
+  },
+  activeSegment: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  segmentText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#666',
+  },
+  activeSegmentText: {
+    color: '#FF385C',
+    fontWeight: '600',
   },
   scrollView: {
     flex: 1,
@@ -1057,12 +1571,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     width: '100%',
   },
+  monthHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 12,
+    paddingHorizontal: 16,
+  },
   monthTitle: {
     fontSize: 18,
     fontWeight: '600',
-    marginVertical: 12,
-    marginLeft: 16,
     color: '#000000',
+  },
+  monthTotal: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#4CAF50', // Changed from gold to green
   },
   calendarHeader: {
     flexDirection: 'row',
@@ -1097,6 +1621,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
   },
+  todayCell: {
+    borderWidth: 1.5,
+    borderColor: '#FF385C',
+  },
   emptyDay: {
     width: DAY_CELL_SIZE,
     height: 70,
@@ -1110,6 +1638,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     color: '#000000',
+  },
+  todayNumber: {
+    fontWeight: '700',
+    color: '#FF385C',
+  },
+  todayIndicator: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FF385C',
   },
   bookingIndicator: {
     flexDirection: 'row',
@@ -1170,14 +1711,13 @@ const styles = StyleSheet.create({
   },
   nameOverlay: {
     position: 'absolute',
-    bottom: 5,
-    left: 36,
+    bottom: 28,
+    left: 32,
     zIndex: 20,
-    height: 28,
+    height: 22,
     paddingVertical: 2,
-    paddingRight: 4,
-    paddingLeft: 0,
-    width: DAY_CELL_SIZE * 3,
+    paddingHorizontal: 4,
+    maxWidth: DAY_CELL_SIZE * 2.5,
     justifyContent: 'center',
     pointerEvents: 'none',
   },
@@ -1188,32 +1728,140 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0, 0, 0, 0.3)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
-    marginLeft: 4,
   },
-  refreshButton: {
-    padding: 8,
-    marginRight: 8,
+  amountOnlyOverlay: {
+    position: 'absolute',
+    bottom: 5,
+    left: 32,
+    zIndex: 20,
+    height: 28,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    width: DAY_CELL_SIZE * 2.5,
+    justifyContent: 'center',
+    pointerEvents: 'none',
   },
-  miniLoadingContainer: {
+  amountOnlyText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: 'white',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  payoutOverlay: {
+    position: 'absolute',
+    bottom: 5,
+    left: 'auto',
+    right: 8,
+    zIndex: 21,
+    height: 22,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    pointerEvents: 'none',
+  },
+  payoutText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: 'white',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  datePickerContainer: {
+    position: 'absolute',
+    top: 55,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  filtersRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    margin: 8,
-    alignSelf: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
-    elevation: 2,
+    justifyContent: 'space-between',
+    paddingHorizontal: 15,
+    paddingVertical: 14,
+    backgroundColor: '#f8f8f8',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
   },
-  miniLoadingText: {
-    fontSize: 14,
-    color: '#777',
+  dateFilterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    minWidth: 180,
+  },
+  dateFilterText: {
     marginLeft: 8,
+    fontSize: 14,
+    color: '#333',
+  },
+  sortButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    minWidth: 120,
+  },
+  sortText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+  },
+  monthPickerContainer: {
+    position: 'absolute',
+    top: 100, // Adjusted for sleeker header
+    left: 16,
+    width: 220,
+    maxHeight: 300,
+    backgroundColor: 'white',
+    borderRadius: 10,
+    zIndex: 1000,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    borderWidth: 0,
+  },
+  monthPickerScroll: {
+    maxHeight: 300,
+  },
+  monthPickerItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  monthPickerItemSelected: {
+    backgroundColor: 'rgba(255, 56, 92, 0.1)',
+  },
+  monthPickerText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  monthPickerTextSelected: {
+    fontWeight: '600',
+    color: '#FF385C',
   },
 });
 

@@ -15,6 +15,8 @@ import {
   Pressable,
   ScrollView,
   Platform,
+  Linking,
+  Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -208,9 +210,6 @@ const ListingsHeader = ({ title }) => {
   return (
     <View style={styles.listingsHeaderContainer}>
       <Text style={[styles.listingsHeaderTitle, { color: theme.text.primary }]}>{title}</Text>
-      <TouchableOpacity>
-        <Text style={{ color: GOLD.primary, fontSize: 14 }}>View All</Text>
-      </TouchableOpacity>
     </View>
   );
 };
@@ -587,7 +586,13 @@ const ListingsScreen = () => {
                   />
                   <View style={styles.topPropertyOverlay} />
                   <View style={styles.topPropertyBadge}>
-                    <View style={styles.topPropertyBadgeDot} />
+                    <View style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: 3,
+                      backgroundColor: '#4CAF50', // Green dot
+                      marginRight: 5,
+                    }} />
                     <Text style={styles.topPropertyBadgeText}>Active</Text>
                   </View>
                   
@@ -615,7 +620,7 @@ const ListingsScreen = () => {
                       ]}>
                         <Ionicons 
                           name={data.icon} 
-                          size={14} 
+                          size={13} 
                           color={data.isPrimary ? GOLD.primary : theme.text.secondary} 
                         />
                         <Text 
@@ -634,15 +639,66 @@ const ListingsScreen = () => {
                     ))}
                   </View>
                   
-                  {amenities.length > 0 && (
+                  <View style={styles.topPropertyFooter}>
                     <View style={styles.amenitiesContainer}>
-                      {amenities.map((amenity, i) => (
+                      {amenities.length > 0 && amenities.slice(0, 2).map((amenity, i) => (
                         <View key={i} style={styles.amenityTag}>
                           <Text style={styles.amenityText}>{amenity}</Text>
                         </View>
                       ))}
                     </View>
-                  )}
+                    
+                    <View style={styles.listingLinks}>
+                      <TouchableOpacity 
+                        style={[styles.listingLinkButton, { backgroundColor: 'rgba(255,90,95,0.1)' }]}
+                        onPress={async () => {
+                          console.log('Property:', property);
+                          const url = property.airbnbListingUrl || (property.externalUrls && property.externalUrls.airbnb);
+                          if (url) {
+                            try {
+                              const canOpen = await Linking.canOpenURL(url);
+                              if (canOpen) {
+                                await Linking.openURL(url);
+                              } else {
+                                Alert.alert("Cannot open link", "Unable to open the Airbnb link.");
+                              }
+                            } catch (error) {
+                              console.error('Error opening URL:', error);
+                              Alert.alert("Error", "There was a problem opening the link.");
+                            }
+                          } else {
+                            console.log('No Airbnb URL available for this property');
+                          }
+                        }}
+                      >
+                        <Text style={[styles.listingLinkText, { color: '#FF5A5F' }]}>Airbnb</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={[styles.listingLinkButton, { backgroundColor: 'rgba(61,103,255,0.1)' }]}
+                        onPress={async () => {
+                          console.log('Property:', property);
+                          const url = property.vrboListingUrl || (property.externalUrls && property.externalUrls.vrbo);
+                          if (url) {
+                            try {
+                              const canOpen = await Linking.canOpenURL(url);
+                              if (canOpen) {
+                                await Linking.openURL(url);
+                              } else {
+                                Alert.alert("Cannot open link", "Unable to open the VRBO link.");
+                              }
+                            } catch (error) {
+                              console.error('Error opening URL:', error);
+                              Alert.alert("Error", "There was a problem opening the link.");
+                            }
+                          } else {
+                            console.log('No VRBO URL available for this property');
+                          }
+                        }}
+                      >
+                        <Text style={[styles.listingLinkText, { color: '#3D67FF' }]}>VRBO</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 </View>
               </TouchableOpacity>
             );
@@ -1132,27 +1188,20 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 70,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    backgroundGradient: 'linear-gradient(to top, rgba(0,0,0,0.5), transparent)',
+    height: 80,
+    backgroundColor: 'transparent',
+    backgroundGradient: 'linear-gradient(to top, rgba(0,0,0,0.6), transparent)',
   },
   topPropertyBadge: {
     position: 'absolute',
     top: 12,
     right: 12,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.75)',
     borderRadius: 12,
     paddingVertical: 4,
     paddingHorizontal: 10,
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  topPropertyBadgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: GOLD.primary,
-    marginRight: 5,
   },
   topPropertyBadgeText: {
     color: '#FFFFFF',
@@ -1160,12 +1209,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   topPropertyInfo: {
-    padding: 14,
+    padding: 12,
   },
   topPropertyName: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '700',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   topPropertyStats: {
     flexDirection: 'column',
@@ -1173,14 +1222,35 @@ const styles = StyleSheet.create({
   topPropertyStat: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 5,
   },
   topPropertyStatWithMargin: {
-    marginBottom: 6,
+    marginBottom: 5,
   },
   topPropertyStatValue: {
-    fontSize: 13,
+    fontSize: 12,
     marginLeft: 6,
+  },
+  topPropertyFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginTop: 6,
+  },
+  listingLinks: {
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
+  },
+  listingLinkButton: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    marginBottom: 4,
+  },
+  listingLinkText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   tipsCard: {
     justifyContent: 'center',

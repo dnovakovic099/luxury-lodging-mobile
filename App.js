@@ -41,7 +41,7 @@ import ReservationsScreen from './src/screens/ReservationsScreen';
 import SupportScreen from './src/screens/SupportScreen';
 import EarnMoreScreen from './src/screens/EarnMoreScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
-import AIReportScreen from './src/screens/NewsScreen';
+import AiScreen from './src/screens/AiScreen';
 
 // No need for separate SignOutScreen - we'll add a button to HomeScreen instead
 
@@ -138,17 +138,8 @@ const MainTabs = () => {
         }}
       />
       <Tab.Screen
-        name="Reservations"
-        component={ReservationsScreen}
-        options={{
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="today" size={24} color={color} style={{fontWeight: '300'}} />
-          ),
-        }}
-      />
-      <Tab.Screen
         name="AI"
-        component={AIReportScreen}
+        component={AiScreen}
         options={{
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="analytics" size={24} color={color} style={{fontWeight: '300'}} />
