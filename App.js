@@ -22,6 +22,7 @@ import { theme as defaultTheme } from './src/theme';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import {ConsultationProvider} from './src/context/ConsultationContext';
+import NotificationService from './src/services/NotificationService';
 
 // Suppress warnings
 LogBox.ignoreLogs([

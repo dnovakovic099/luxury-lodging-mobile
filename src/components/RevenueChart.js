@@ -325,25 +325,16 @@ const RevenueChart = ({ data, loading, onFetchData, onDataUpdate }) => {
   // Debug actual values and notify parent of data updates
   useEffect(() => {
     if (data && data[viewMode]) {
-      console.log(`[RevenueChart] ${viewMode} data:`, data[viewMode]);
-      
-      // Check if we have meaningful data
       const viewData = data[viewMode];
       const hasValidData = viewData && 
                           viewData.data && 
                           viewData.data.length > 0 && 
                           viewData.data.some(val => val > 0);
-      
-      // Only notify parent if we have valid data and haven't notified for this viewMode yet
-      // or if the data has changed
       const dataSignature = JSON.stringify(viewData);
       if (hasValidData && 
           (!dataNotified[viewMode] || dataNotified[viewMode] !== dataSignature) && 
           onDataUpdate) {
-        console.log(`📱 RevenueChart: Notifying parent of ${viewMode} data update`);
         onDataUpdate(viewMode, viewData);
-        
-        // Update notification record
         setDataNotified(prev => ({ 
           ...prev, 
           [viewMode]: dataSignature 

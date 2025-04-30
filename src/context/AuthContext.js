@@ -4,6 +4,7 @@ import * as Keychain from 'react-native-keychain';
 import {jwtDecode} from 'jwt-decode';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { View, Modal } from 'react-native';
+import NotificationService from '../services/NotificationService';
 
 const AuthContext = createContext(null);
 
@@ -390,6 +391,37 @@ export function AuthProvider({ children }) {
       return false;
     }
   };
+
+  // Send FCM token to server after user signs in
+  useEffect(() => {
+    console.log('[AuthContext] FCM useEffect triggered', {
+      userData,
+      userId: userData?.userId
+    });
+    if (userData && userData.userId) {
+      const sendFcmToken = async () => {
+        try {
+          const notificationService = NotificationService.getInstance();
+          // Request notification permission first
+          const hasPermission = await notificationService.requestPermission();
+          console.log('[AuthContext] Notification permission status:', hasPermission);
+          
+          if (hasPermission) {
+            const userId = userData.userId;
+            const token = await notificationService.getFCMToken(userId);
+            if (token) {
+              await notificationService.sendTokenToServer(token, userId);
+            }
+          } else {
+            console.warn('[AuthContext] Notification permission not granted');
+          }
+        } catch (error) {
+          console.error('[AuthContext] Error sending FCM token after sign-in:', error);
+        }
+      };
+      sendFcmToken();
+    }
+  }, [userData]);
 
   return (
     <AuthContext.Provider value={{

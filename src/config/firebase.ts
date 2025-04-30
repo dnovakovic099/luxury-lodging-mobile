@@ -1,0 +1,1 @@
+// No manual Firebase initialization needed with @react-native-firebase/app. 
