@@ -53,5 +53,10 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.luxurylodging.refresh</string>
+		<string>com.luxurylodging.processing</string>
+	</array>
 </dict>
 </plist>

@@ -11,9 +11,19 @@ const SERVER_BASE_URL = Platform.select({
 let accessToken = null;
 
 /**
- * Common function to make authenticated requests to the server
+ * Set the access token for subsequent requests
  */
-const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
+export const setAccessToken = (token) => {
+  accessToken = token;
+};
+
+/**
+ * Common function to make authenticated requests to the server
+ * @param {string} endpoint - The API endpoint to call
+ * @param {string} method - The HTTP method to use
+ * @param {any} body - The request body
+ */
+export const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
   try {
     const token = accessToken;
     
@@ -37,6 +47,8 @@ const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
     // Create an AbortController to handle timeouts
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    console.log('url', url);
+    console.log('options', options);
     
     try {
       options.signal = controller.signal;
@@ -78,17 +90,20 @@ const makeServerRequest = async (endpoint, method = 'GET', body = null) => {
  */
 export const authenticateUser = async (email, password, setErrorMessage) => {
   try {
-    const response = await fetch(`${SERVER_BASE_URL}/api/auth/login`, {
+    const url = `${SERVER_BASE_URL}/api/auth/login`;
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Cache-control': 'no-cache',
       },
       body: JSON.stringify({ email, password }),
     });
     
     if (response.ok) {
       const data = await response.json();
-      accessToken = data.token;
+      console.log('data', data);
+      setAccessToken(data.token);
       return {
         email: email,
         accessToken: data.token,

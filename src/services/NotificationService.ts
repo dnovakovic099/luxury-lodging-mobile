@@ -1,12 +1,15 @@
 import messaging from '@react-native-firebase/messaging';
-import { Platform } from 'react-native';
 import * as Keychain from 'react-native-keychain';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { makeServerRequest, setAccessToken } from './api';
 
 interface StoredToken {
   token: string;
   userId: string;
 }
+
+// Define the type for makeServerRequest
+type MakeServerRequest = (endpoint: string, method?: string, body?: any) => Promise<any>;
 
 class NotificationService {
   private static instance: NotificationService;
@@ -24,7 +27,11 @@ class NotificationService {
   private async getAuthToken(): Promise<string | null> {
     try {
       const credentials = await Keychain.getGenericPassword();
-      return credentials ? credentials.password : null;
+      const token = credentials ? credentials.password : null;
+      if (token) {
+        setAccessToken(token); // Set the token in api.js when retrieved
+      }
+      return token;
     } catch (error) {
       console.error('[NotificationService] Error getting auth token:', error);
       return null;
@@ -36,7 +43,7 @@ class NotificationService {
       const stored = await AsyncStorage.getItem(NotificationService.FCM_TOKEN_KEY);
       console.log('[NotificationService] Retrieved stored value:', stored);
       
-      if (!stored || stored.trim() === '') {
+      if (!stored || stored.trim() === '') {  
         console.log('[NotificationService] No token stored');
         return null;
       }
@@ -151,45 +158,25 @@ class NotificationService {
 
       // Check if any token exists for this user
       const storedToken = await this.getStoredToken();
+      
       if (storedToken && storedToken.userId && storedToken.userId.toString() === userId.toString()) {
         console.log('[NotificationService] User already has a token registered, skipping server send');
         return true;
       }
 
-      // Get the auth token for the Authorization header
-      const authToken = await this.getAuthToken();
-      
-      if (!authToken) {
-        console.warn('[NotificationService] No auth token available for request');
-        return false;
-      }
-
-      const headers = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`,
-      };
-
       console.log('[NotificationService] Sending new FCM token to server...');
 
-      const response = await fetch('https://luxurylodgingpm.co/luxury_lodging_mobile_api/auth/fcm-token', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ token }),
-      });
-
-      const responseBody = await response.text();
-      console.log('[NotificationService] sendTokenToServer response status:', response.status);
-      console.log('[NotificationService] sendTokenToServer response body:', responseBody);
-      
-      if (!response.ok) {
-        console.warn('[NotificationService] Failed to save FCM token to server. Status:', response.status);
+      try {
+        await makeServerRequest('/auth/fcm-token', 'POST', { token });
+        
+        // Only store the token locally after successful server response
+        await this.storeToken(token, userId.toString());
+        console.log('[NotificationService] FCM token successfully sent to server and stored locally');
+        return true;
+      } catch (error) {
+        console.warn('[NotificationService] Failed to save FCM token to server:', error);
         return false;
       }
-
-      // Only store the token locally after successful server response
-      await this.storeToken(token, userId.toString());
-      console.log('[NotificationService] FCM token successfully sent to server and stored locally');
-      return true;
     } catch (error) {
       console.error('[NotificationService] Error sending FCM token to server:', error);
       return false;

@@ -2,8 +2,6 @@ import React, { createContext, useState, useContext, useEffect, useRef } from 'r
 import {authenticateUser, fetchListings, getReservationsWithFinancialData} from '../services/api';
 import * as Keychain from 'react-native-keychain';
 import {jwtDecode} from 'jwt-decode';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { View, Modal } from 'react-native';
 import NotificationService from '../services/NotificationService';
 
 const AuthContext = createContext(null);
