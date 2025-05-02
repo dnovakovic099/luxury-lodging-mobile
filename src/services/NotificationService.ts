@@ -14,6 +14,8 @@ type MakeServerRequest = (endpoint: string, method?: string, body?: any) => Prom
 class NotificationService {
   private static instance: NotificationService;
   private static FCM_TOKEN_KEY = 'fcm_token';
+  // URL for sending FCM token - without /api prefix as makeServerRequest adds it
+  private static FCM_TOKEN_ENDPOINT = '/auth/fcm-token';
 
   private constructor() {}
 
@@ -29,7 +31,7 @@ class NotificationService {
       const credentials = await Keychain.getGenericPassword();
       const token = credentials ? credentials.password : null;
       if (token) {
-        setAccessToken(token); // Set the token in api.js when retrieved
+        setAccessToken(token);
       }
       return token;
     } catch (error) {
@@ -154,7 +156,7 @@ class NotificationService {
 
   public async sendTokenToServer(token: string, userId: string): Promise<boolean> {
     try {
-      console.log('[NotificationService] sendTokenToServer called with token:', token, 'for user:', userId);
+      console.log('[NotificationService] sendTokenToServer called with token:', token ? 'Token exists' : 'Token is null', 'for user:', userId);
 
       // Check if any token exists for this user
       const storedToken = await this.getStoredToken();
@@ -164,10 +166,18 @@ class NotificationService {
         return true;
       }
 
+      // Get the auth token and set it for makeServerRequest
+      const authToken = await this.getAuthToken();
+      
+      if (!authToken) {
+        console.warn('[NotificationService] No auth token available for request');
+        return false;
+      }
+
       console.log('[NotificationService] Sending new FCM token to server...');
 
       try {
-        await makeServerRequest('/auth/fcm-token', 'POST', { token });
+        await makeServerRequest(NotificationService.FCM_TOKEN_ENDPOINT, 'POST', { token });
         
         // Only store the token locally after successful server response
         await this.storeToken(token, userId.toString());

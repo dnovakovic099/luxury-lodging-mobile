@@ -392,17 +392,12 @@ export function AuthProvider({ children }) {
 
   // Send FCM token to server after user signs in
   useEffect(() => {
-    console.log('[AuthContext] FCM useEffect triggered', {
-      userData,
-      userId: userData?.userId
-    });
     if (userData && userData.userId) {
       const sendFcmToken = async () => {
         try {
           const notificationService = NotificationService.getInstance();
           // Request notification permission first
           const hasPermission = await notificationService.requestPermission();
-          console.log('[AuthContext] Notification permission status:', hasPermission);
           
           if (hasPermission) {
             const userId = userData.userId;

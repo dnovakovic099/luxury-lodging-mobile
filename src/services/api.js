@@ -47,8 +47,6 @@ export const makeServerRequest = async (endpoint, method = 'GET', body = null) =
     // Create an AbortController to handle timeouts
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-    console.log('url', url);
-    console.log('options', options);
     
     try {
       options.signal = controller.signal;
@@ -91,6 +89,7 @@ export const makeServerRequest = async (endpoint, method = 'GET', body = null) =
 export const authenticateUser = async (email, password, setErrorMessage) => {
   try {
     const url = `${SERVER_BASE_URL}/api/auth/login`;
+    
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -102,7 +101,6 @@ export const authenticateUser = async (email, password, setErrorMessage) => {
     
     if (response.ok) {
       const data = await response.json();
-      console.log('data', data);
       setAccessToken(data.token);
       return {
         email: email,
@@ -264,7 +262,6 @@ export const getFinancialReport = async (params = {}) => {
 
     return response;
   } catch (error) {
-    console.error("Error in getFinancialReport:", error.message);
     return { 
       result: {
         rows: [],
