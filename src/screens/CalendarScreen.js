@@ -11,6 +11,7 @@ import {
   Image,
   ActivityIndicator,
   Switch,
+  Animated,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import PropertyPicker from '../components/PropertyPicker';
@@ -29,7 +30,9 @@ import { format, startOfDay, isSameDay, parseISO } from 'date-fns';
 // Cache key for calendar bookings
 const CALENDAR_BOOKINGS_CACHE = 'cache_calendar_bookings';
 // Debug flag for cache logging
-const DEBUG_CACHE = false; // Disable debug logs
+const DEBUG_CACHE = true; // Enable debug logs to diagnose property switching issues
+// Debug flag for property changes
+const DEBUG_PROPERTY_CHANGE = true;
 
 // Flag to enable time zone handling for listing location
 const USE_LISTING_TIMEZONE = true;
@@ -74,9 +77,6 @@ const CalendarScreen = ({ navigation }) => {
   const [showCalendarView, setShowCalendarView] = useState(true);
   const { theme = defaultTheme } = useTheme();
   
-  // Add loading state specifically for tab switching
-  const [switchingView, setSwitchingView] = useState(false);
-  
   // Calendar state
   const { listings } = useAuth();
   const [selectedProperty, setSelectedProperty] = useState(null);
@@ -87,6 +87,11 @@ const CalendarScreen = ({ navigation }) => {
   const scrollViewRef = useRef(null);
   const [currentMonthIndex, setCurrentMonthIndex] = useState(0);
   const [monthPickerVisible, setMonthPickerVisible] = useState(false);
+  // Add a ref to track property changes and prevent race conditions
+  const propertyRef = useRef(null);
+  const lastFetchRef = useRef({ property: null, timestamp: 0 });
+  // Replace state with animated value for loading indicator height
+  const loadingHeight = useRef(new Animated.Value(0)).current;
   
   // Reservations state
   const [reservations, setReservations] = useState([]);
@@ -143,16 +148,16 @@ const CalendarScreen = ({ navigation }) => {
 
   // Scroll to current month when months load or loading completes
   useEffect(() => {
-    if (!isLoading && allMonths.length > 0 && scrollViewRef.current && currentMonthIndex > 0) {
+    if (!isLoading && allMonths.length > 0 && scrollViewRef.current && currentMonthIndex >= 0) {
       // Add a small delay to ensure the scrollview has rendered
       setTimeout(() => {
-        // Calculate position based on month height (approx 450px per month)
+        // Scroll directly to month by index
         const monthHeight = 450; 
         scrollViewRef && scrollViewRef.current && scrollViewRef.current.scrollTo({ 
           y: currentMonthIndex * monthHeight, 
           animated: false 
         });
-      }, 100);
+      }, 50);
     }
   }, [isLoading, allMonths, currentMonthIndex]);
 
@@ -160,15 +165,13 @@ const CalendarScreen = ({ navigation }) => {
   useEffect(() => {
     // Function to scroll to current month
     const scrollToCurrentMonth = () => {
-      if (allMonths.length > 0 && scrollViewRef.current && currentMonthIndex > 0) {
-        setTimeout(() => {
-          // Use centered calculation here too
-          const scrollPosition = calculateCenteredScrollPosition();
-          scrollViewRef.current.scrollTo({
-            y: scrollPosition,
-            animated: false
-          });
-        }, 150);
+      if (allMonths.length > 0 && scrollViewRef.current && currentMonthIndex >= 0) {
+        // Direct scroll to month based on index - simpler and faster
+        const monthHeight = 450;
+        scrollViewRef.current.scrollTo({
+          y: currentMonthIndex * monthHeight,
+          animated: false
+        });
       }
     };
 
@@ -191,12 +194,35 @@ const CalendarScreen = ({ navigation }) => {
   // Effect to fetch reservations when the selected property changes
   useEffect(() => {
     if (selectedProperty && allMonths.length > 0) {
+      // Update the property ref to track current value
+      propertyRef.current = selectedProperty;
+      
+      if (DEBUG_PROPERTY_CHANGE) console.log(`[Effect] Selected property changed to: ${selectedProperty}`);
+      
+      // If multiple rapid property changes occur, only process the most recent one
+      const now = Date.now();
+      if (now - lastFetchRef.current.timestamp < 300 && 
+          lastFetchRef.current.property !== selectedProperty) {
+        if (DEBUG_PROPERTY_CHANGE) console.log(`[Effect] Debouncing rapid property change to ${selectedProperty}`);
+        lastFetchRef.current = { property: selectedProperty, timestamp: now };
+        return;
+      }
+      
+      lastFetchRef.current = { property: selectedProperty, timestamp: now };
+      
       // First try to load from cache, then fetch from API
       loadBookingsFromCache().then(hasCachedData => {
-        if (DEBUG_CACHE) console.log(`Calendar: Cache load attempt result: ${hasCachedData ? 'Success' : 'Failed'}`);
+        // Guard against property changing during async operation
+        if (propertyRef.current !== selectedProperty) {
+          if (DEBUG_CACHE) console.log(`[Cache] Property changed after cache load from ${selectedProperty} to ${propertyRef.current}, aborting follow-up actions`);
+          return;
+        }
+        
+        if (DEBUG_CACHE) console.log(`[Cache] Calendar cache load attempt for property ${selectedProperty}: ${hasCachedData ? 'Success' : 'Failed'}`);
         
         // If we didn't get valid cache, fetch fresh data
         if (!hasCachedData) {
+          if (DEBUG_PROPERTY_CHANGE) console.log(`[Effect] No cache data found for property ${selectedProperty}, fetching from API`);
           fetchReservations();
         } else {
           // Ensure we're not in loading state when we have cached data
@@ -206,8 +232,18 @@ const CalendarScreen = ({ navigation }) => {
           const potentiallyStaleCache = true; // Always refresh in background for now
           if (potentiallyStaleCache) {
             // Slight delay before triggering background fetch to ensure UI is responsive first
+            if (DEBUG_PROPERTY_CHANGE) console.log(`[Effect] Scheduling background fetch for property ${selectedProperty} in 1500ms`);
+            
+            // Use a timeout but keep track of the property to ensure we don't load stale data
+            const propertyAtSchedule = selectedProperty;
             setTimeout(() => {
-              if (DEBUG_CACHE) console.log('Calendar: Performing background fetch to refresh potentially stale data');
+              // Check if property has changed since scheduling this update
+              if (propertyRef.current !== propertyAtSchedule) {
+                if (DEBUG_CACHE) console.log(`[Cache] Cancelling background fetch because property changed from ${propertyAtSchedule} to ${propertyRef.current}`);
+                return;
+              }
+              
+              if (DEBUG_CACHE) console.log(`[Cache] Performing background fetch to refresh potentially stale data for property ${propertyAtSchedule}`);
               fetchReservations();
             }, 1500); // Increased delay to ensure UI has time to render cached data
           }
@@ -279,6 +315,12 @@ const CalendarScreen = ({ navigation }) => {
   const fetchReservations = async () => {
     if (!selectedProperty) return;
     
+    // Track request start time to identify overlapping requests
+    const requestStartTime = Date.now();
+    const requestProperty = selectedProperty;
+    
+    if (DEBUG_PROPERTY_CHANGE) console.log(`[API] Starting fetch for property ${requestProperty} at ${requestStartTime}`);
+    
     // Only show full page loading if we don't have cached data
     const shouldShowLoading = !bookingsFromCache;
     if (shouldShowLoading) {
@@ -301,14 +343,19 @@ const CalendarScreen = ({ navigation }) => {
       const fromDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
       const toDateStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
       
+      // Store property ID at the start of the request for later comparison
+      const propertyAtStart = requestProperty;
+      
+      if (DEBUG_PROPERTY_CHANGE) console.log(`[API] Before API call - propertyAtStart: ${propertyAtStart}, current: ${propertyRef.current}`);
+      
       // Find the selected listing to get its timezone if available
-      const selectedListing = listings?.find(listing => listing.id.toString() === selectedProperty);
+      const selectedListing = listings?.find(listing => listing.id.toString() === propertyAtStart);
       // Get timezone offset from the listing or use default
       const listingTimezoneOffset = selectedListing?.timezoneOffset || DEFAULT_LISTING_TIMEZONE_OFFSET;
       
       // Prepare params for API call
       const params = {
-        listingMapIds: [selectedProperty],
+        listingMapIds: [propertyAtStart],
         fromDate: fromDateStr,
         toDate: toDateStr,
         dateType: 'arrival', // could be 'arrival' or 'departure'
@@ -317,6 +364,17 @@ const CalendarScreen = ({ navigation }) => {
       
       // Fetch reservations from API
       const result = await getReservationsWithFinancialData(params);
+      
+      const requestEndTime = Date.now();
+      if (DEBUG_PROPERTY_CHANGE) console.log(`[API] Received API response for property ${propertyAtStart} after ${requestEndTime - requestStartTime}ms`);
+      
+      // Make sure the property hasn't changed during the fetch
+      if (propertyRef.current !== propertyAtStart) {
+        console.log(`[API] ABORT: Property changed during fetch from ${propertyAtStart} to ${propertyRef.current}, ignoring results`);
+        return;
+      }
+      
+      if (DEBUG_PROPERTY_CHANGE) console.log(`[API] Processing API results for property ${propertyAtStart}`);
       
       // Transform API data to our booking format with strict status and date filtering
       if (result?.reservations && Array.isArray(result.reservations)) {
@@ -458,25 +516,30 @@ const CalendarScreen = ({ navigation }) => {
           })
           .filter(booking => booking !== null);
         
+        if (DEBUG_PROPERTY_CHANGE) console.log(`[API] Setting ${transformedBookings.length} bookings for property ${propertyAtStart}`);
         setBookings(transformedBookings);
         
         // Save to cache after successful fetch
         if (transformedBookings.length > 0) {
+          if (DEBUG_CACHE) console.log(`[Cache] Scheduling cache save for property ${propertyAtStart}`);
           setTimeout(() => saveBookingsToCache(), 10); // Slight delay to not block the UI
         }
       } else {
         // Handle no reservations or invalid response
+        if (DEBUG_PROPERTY_CHANGE) console.log(`[API] No reservations found for property ${propertyAtStart}, setting empty bookings array`);
         setBookings([]);
       }
     } catch (error) {
-      console.error('Error fetching reservations:', error);
+      console.error(`[API] Error fetching reservations for property ${requestProperty}:`, error);
       
       // If we have no cached data or fetching failed, set empty bookings
       if (!bookingsFromCache) {
+        if (DEBUG_PROPERTY_CHANGE) console.log(`[API] Error case - setting empty bookings for property ${requestProperty}`);
         setBookings([]);
       }
     } finally {
       // Always set loading to false when fetch completes
+      if (DEBUG_PROPERTY_CHANGE) console.log(`[API] Fetch completed for property ${requestProperty}, setting isLoading to false`);
       setIsLoading(false);
     }
   };
@@ -511,12 +574,21 @@ const CalendarScreen = ({ navigation }) => {
   };
 
   const handlePropertyChange = (propertyId) => {
+    if (DEBUG_PROPERTY_CHANGE) console.log(`[Property Change] Switching to property: ${propertyId}`);
+    
     // Reset cached state when property changes
     setBookingsFromCache(false);
     setSelectedProperty(propertyId);
     
-    // If in reservation view, also refresh the reservations
-    if (!showCalendarView) {
+    // For calendar view, reset loading and fetch new data
+    if (showCalendarView) {
+      setIsLoading(true);
+      if (DEBUG_PROPERTY_CHANGE) console.log(`[Property Change] Calendar view - calling fetchReservations for property: ${propertyId}`);
+      fetchReservations();
+    } else {
+      // For reservation view, also refresh the reservations
+      setIsLoading(true);
+      if (DEBUG_PROPERTY_CHANGE) console.log(`[Property Change] Reservation view - calling fetchReservationsForTable for property: ${propertyId}`);
       fetchReservationsForTable();
     }
   };
@@ -872,18 +944,32 @@ const CalendarScreen = ({ navigation }) => {
   // Optimize bookings processing by reducing unnecessary operations
   const loadBookingsFromCache = async () => {
     try {
+      // Store the property at the start of the operation
+      const propertyAtStart = selectedProperty;
+      
       // Create a cache key that includes the property id
-      const cacheKey = `${CALENDAR_BOOKINGS_CACHE}_${selectedProperty}`;
+      const cacheKey = `${CALENDAR_BOOKINGS_CACHE}_${propertyAtStart}`;
+      
+      if (DEBUG_CACHE) console.log(`[Cache] Attempting to load cache for property ${propertyAtStart}, key: ${cacheKey}`);
       
       // Get the data in a single operation
       const cachedBookings = await loadFromCache(cacheKey);
       
-      if (!cachedBookings || !Array.isArray(cachedBookings) || cachedBookings.length === 0) {
+      // Check if the property changed during cache load
+      if (propertyRef.current !== propertyAtStart) {
+        if (DEBUG_CACHE) console.log(`[Cache] ABORT: Property changed during cache load from ${propertyAtStart} to ${propertyRef.current}`);
         return false;
       }
       
+      if (!cachedBookings || !Array.isArray(cachedBookings) || cachedBookings.length === 0) {
+        if (DEBUG_CACHE) console.log(`[Cache] No valid cache found for property ${propertyAtStart}`);
+        return false;
+      }
+      
+      if (DEBUG_CACHE) console.log(`[Cache] Found ${cachedBookings.length} cached bookings for property ${propertyAtStart}`);
+      
       // Find the selected listing to get its timezone if available
-      const selectedListing = listings?.find(listing => listing.id.toString() === selectedProperty);
+      const selectedListing = listings?.find(listing => listing.id.toString() === propertyAtStart);
       // Get timezone offset from the listing or use default
       const listingTimezoneOffset = selectedListing?.timezoneOffset || DEFAULT_LISTING_TIMEZONE_OFFSET;
       
@@ -921,11 +1007,19 @@ const CalendarScreen = ({ navigation }) => {
       );
       
       if (!hasValidBookings) {
+        if (DEBUG_CACHE) console.log(`[Cache] Invalid date objects in cached bookings for property ${propertyAtStart}`);
+        return false;
+      }
+      
+      // Check again if property changed during processing
+      if (propertyRef.current !== propertyAtStart) {
+        if (DEBUG_CACHE) console.log(`[Cache] ABORT: Property changed during cache processing from ${propertyAtStart} to ${propertyRef.current}`);
         return false;
       }
       
       // Critical: First set not loading, then update bookings state
       // This ensures the UI updates with cached data before any potential re-renders
+      if (DEBUG_CACHE) console.log(`[Cache] Setting valid cache data for property ${propertyAtStart}, count: ${fixedBookings.length}`);
       setIsLoading(false);
       setBookingsFromCache(true);
       
@@ -946,11 +1040,23 @@ const CalendarScreen = ({ navigation }) => {
         return;
       }
       
+      // Capture the property at the start of the operation
+      const propertyAtStart = selectedProperty;
+      
       // Create a cache key that includes the property id
-      const cacheKey = `${CALENDAR_BOOKINGS_CACHE}_${selectedProperty}`;
+      const cacheKey = `${CALENDAR_BOOKINGS_CACHE}_${propertyAtStart}`;
+      
+      if (DEBUG_CACHE) console.log(`[Cache] Saving ${bookings.length} bookings to cache for property ${propertyAtStart}`);
       
       // Save to cache with the proper key
       await saveToCache(cacheKey, bookings);
+      
+      // Check if property changed during the save operation
+      if (propertyRef.current !== propertyAtStart) {
+        if (DEBUG_CACHE) console.log(`[Cache] Property changed during cache save from ${propertyAtStart} to ${propertyRef.current} - cache might be stale`);
+      } else {
+        if (DEBUG_CACHE) console.log(`[Cache] Successfully saved bookings to cache for property ${propertyAtStart}`);
+      }
     } catch (error) {
       console.error('Error saving bookings to cache:', error);
     }
@@ -1118,7 +1224,18 @@ const CalendarScreen = ({ navigation }) => {
   const fetchReservationsForTable = async () => {
     if (!selectedProperty) return;
     
+    // Track request start time to identify overlapping requests
+    const requestStartTime = Date.now();
+    const requestProperty = selectedProperty;
+    
+    if (DEBUG_PROPERTY_CHANGE) console.log(`[API-Table] Starting fetch for reservations table, property ${requestProperty} at ${requestStartTime}`);
+    
+    // Only show full loading on initial load - use more subtle loading for refreshes
+    const isInitialLoad = !filteredReservations || filteredReservations.length === 0;
+    
+    // Set loading but keep existing data visible
     setIsLoading(true);
+    setRefreshing(true);
     
     try {
       // Calculate date range for 6 months before and after
@@ -1136,9 +1253,14 @@ const CalendarScreen = ({ navigation }) => {
       const fromDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
       const toDateStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
       
+      // Store property ID at the start of the request for later comparison
+      const propertyAtStart = requestProperty;
+      
+      if (DEBUG_PROPERTY_CHANGE) console.log(`[API-Table] Before API call - propertyAtStart: ${propertyAtStart}, current: ${propertyRef.current}`);
+      
       // Prepare params for API call
       const params = {
-        listingMapIds: [selectedProperty],
+        listingMapIds: [propertyAtStart],
         fromDate: fromDateStr,
         toDate: toDateStr,
         dateType: 'arrival',
@@ -1147,6 +1269,17 @@ const CalendarScreen = ({ navigation }) => {
       
       // Fetch reservations from API
       const result = await getReservationsWithFinancialData(params);
+      
+      const requestEndTime = Date.now();
+      if (DEBUG_PROPERTY_CHANGE) console.log(`[API-Table] Received API response for property ${propertyAtStart} after ${requestEndTime - requestStartTime}ms`);
+      
+      // Make sure the property hasn't changed during the fetch
+      if (propertyRef.current !== propertyAtStart) {
+        console.log(`[API-Table] ABORT: Property changed during fetch from ${propertyAtStart} to ${propertyRef.current}, ignoring results`);
+        return;
+      }
+      
+      if (DEBUG_PROPERTY_CHANGE) console.log(`[API-Table] Processing API results for property ${propertyAtStart}`);
       
       if (result?.reservations && Array.isArray(result.reservations)) {
         // Filter reservations using the same logic as calendar view
@@ -1162,15 +1295,366 @@ const CalendarScreen = ({ navigation }) => {
           return hasArrival && hasDeparture && hasValidStatus;
         });
         
-        setReservations(filteredReservations);
-        // Apply initial sort when loading data
-        setFilteredReservations(sortReservations(filteredReservations, sortBy));
+        if (DEBUG_PROPERTY_CHANGE) console.log(`[API-Table] Setting ${filteredReservations.length} reservations for property ${propertyAtStart}`);
+        
+        // Use setTimeout to create a smoother visual transition
+        setTimeout(() => {
+          if (propertyRef.current === propertyAtStart) {
+            setReservations(filteredReservations);
+            // Apply initial sort when loading data
+            setFilteredReservations(sortReservations(filteredReservations, sortBy));
+            setIsLoading(false);
+            setRefreshing(false);
+          }
+        }, isInitialLoad ? 300 : 150); // Longer delay for initial load, shorter for refreshes
+      } else {
+        if (DEBUG_PROPERTY_CHANGE) console.log(`[API-Table] No valid reservations found for property ${propertyAtStart}, setting empty arrays`);
+        
+        // Use setTimeout for smoother transition
+        setTimeout(() => {
+          if (propertyRef.current === propertyAtStart) {
+            setReservations([]);
+            setFilteredReservations([]);
+            setIsLoading(false);
+            setRefreshing(false);
+          }
+        }, isInitialLoad ? 300 : 150);
       }
     } catch (error) {
-      console.error('Error fetching reservations for table:', error);
-    } finally {
-      setIsLoading(false);
+      console.error(`[API-Table] Error fetching reservations for property ${requestProperty}:`, error);
+      
+      // Use setTimeout for smoother transition
+      setTimeout(() => {
+        if (propertyRef.current === requestProperty) {
+          setReservations([]);
+          setFilteredReservations([]);
+          setIsLoading(false);
+          setRefreshing(false);
+        }
+      }, 300);
     }
+  };
+
+  // Effect to load reservations when switching to table view
+  useEffect(() => {
+    if (!showCalendarView && selectedProperty) {
+      if (DEBUG_PROPERTY_CHANGE) console.log(`[Effect-Table] Loading reservations for table view, property: ${selectedProperty}`);
+      
+      // Store property at the time of scheduling fetch
+      const propertyAtSchedule = selectedProperty;
+      
+      // Small timeout to ensure we don't have rapid changes
+      setTimeout(() => {
+        // Check if property changed since scheduling
+        if (propertyRef.current !== propertyAtSchedule) {
+          if (DEBUG_PROPERTY_CHANGE) console.log(`[Effect-Table] Cancelling fetch because property changed from ${propertyAtSchedule} to ${propertyRef.current}`);
+          return;
+        }
+        
+        fetchReservationsForTable();
+      }, 50);
+    }
+  }, [showCalendarView, selectedProperty]);
+
+  // Update the useEffect to also trigger on sortBy changes but with race condition protection
+  useEffect(() => {
+    if (!showCalendarView && reservations.length) {
+      if (DEBUG_PROPERTY_CHANGE) console.log(`[Filter-Table] Applying filters for property ${selectedProperty}, filter criteria changed`);
+      
+      // Capture current property 
+      const propertyAtFilter = selectedProperty;
+      
+      // Use timeout to prevent rapid filter operations
+      setTimeout(() => {
+        // Only proceed if property hasn't changed
+        if (propertyRef.current !== propertyAtFilter) {
+          if (DEBUG_PROPERTY_CHANGE) console.log(`[Filter-Table] Aborting filter application because property changed from ${propertyAtFilter} to ${propertyRef.current}`);
+          return;
+        }
+        
+        const filtered = filterReservationsByDate(startDate, endDate);
+        setFilteredReservations(filtered);
+      }, 10);
+    }
+  }, [startDate, endDate, reservations, showCalendarView, sortBy]);
+
+  // Add a function to calculate scroll position that centers on today's date
+  const calculateCenteredScrollPosition = () => {
+    if (allMonths.length === 0 || currentMonthIndex < 0) return 0;
+    
+    // Constants for calculation
+    const monthHeight = 450;
+    const screenHeight = Dimensions.get('window').height - 200; // Approximate visible area
+    
+    // Base position for the current month
+    let basePosition = currentMonthIndex * monthHeight;
+    
+    // Calculate day offset within the month (to scroll proportionally)
+    const currentDay = today.getDate();
+    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    
+    // Calculate how far into the month we are (0-1 value)
+    const monthProgress = (currentDay - 1) / daysInMonth;
+    
+    // Add offset based on day position in month
+    // This will scroll further down if the date is later in the month
+    const dayOffset = monthHeight * monthProgress;
+    
+    // Calculate final position that centers today's date
+    // Subtract half of screen height to center
+    let scrollPosition = basePosition + dayOffset - (screenHeight / 2);
+    
+    // Don't allow negative scroll position
+    return Math.max(0, scrollPosition);
+  };
+
+  // Update handleViewChange function to use direct month scrolling instead of centered positioning
+  const handleViewChange = (showCalendar) => {
+    // If switching to calendar and we're currently in reservations view
+    if (showCalendar && !showCalendarView) {
+      // Set loading state before view change to show transition
+      if (propertyRef.current) {
+        setCalendarLoading(true);
+      }
+      
+      // Update state first
+      setShowCalendarView(true);
+      
+      // Wait for render cycle to complete
+      setTimeout(() => {
+        if (propertyRef.current) {
+          // Scroll directly to the current month by index
+          if (allMonths.length > 0 && scrollViewRef.current && currentMonthIndex >= 0) {
+            const monthHeight = 450;
+            scrollViewRef.current.scrollTo({
+              y: currentMonthIndex * monthHeight,
+              animated: false
+            });
+          }
+          
+          // Clear loading state after a short delay
+          setTimeout(() => {
+            setCalendarLoading(false);
+          }, 300);
+        }
+      }, 50); // Reduced timeout to 50ms
+    } else if (!showCalendar && showCalendarView) {
+      // For switching to reservations, refresh the reservations data with current property
+      setShowCalendarView(showCalendar);
+      
+      // Capture current property for the scheduled operation
+      const propertyAtSwitch = selectedProperty;
+      
+      // Show loading state right away - will be visible in the reservations view
+      setIsLoading(true);
+      
+      // Ensure we refetch reservations with the current property selection
+      setTimeout(() => {
+        // Check if property changed during the view transition
+        if (propertyRef.current !== propertyAtSwitch) {
+          if (DEBUG_PROPERTY_CHANGE) console.log(`[View Change] Property changed during view transition from ${propertyAtSwitch} to ${propertyRef.current}`);
+          // Property changed, the useEffect will trigger a fetch with the new property
+          return;
+        }
+        
+        if (DEBUG_PROPERTY_CHANGE) console.log(`[View Change] Fetching reservations after view change to table for property ${propertyAtSwitch}`);
+        fetchReservationsForTable();
+      }, 50);
+    } else {
+      // For any other case, just update the view state
+      setShowCalendarView(showCalendar);
+    }
+  };
+
+  // Update the filterReservationsByDate function to track current property
+  const filterReservationsByDate = (start, end) => {
+    if (!reservations.length) return [];
+    
+    // Capture property at time of filtering
+    const propertyAtFilter = selectedProperty;
+    
+    if (DEBUG_PROPERTY_CHANGE) console.log(`[Filter] Filtering reservations by date for property ${propertyAtFilter}`);
+    
+    // First filter by date
+    let filtered = reservations.filter(reservation => {
+      if (!reservation.arrivalDate && !reservation.checkInDate) return false;
+      
+      // Get the arrival date value
+      const arrivalDateValue = reservation.arrivalDate || reservation.checkInDate;
+      
+      // Convert arrival date to string format for consistent comparison
+      let arrivalDateStr;
+      
+      if (arrivalDateValue instanceof Date) {
+        // For Date objects, use UTC date parts to create the string
+        arrivalDateStr = format(arrivalDateValue, 'yyyy-MM-dd');
+      } else if (typeof arrivalDateValue === 'string') {
+        // For strings like "2025-04-27", preserve the date exactly as is without timezone conversion
+        // Test if it's a YYYY-MM-DD format
+        if (/^\d{4}-\d{2}-\d{2}$/.test(arrivalDateValue)) {
+          // If already in YYYY-MM-DD format, use directly
+          arrivalDateStr = arrivalDateValue;
+        } else {
+          // Try to extract the correct date parts using parseISO
+          try {
+            const parsedDate = parseISO(arrivalDateValue);
+            // Use UTC components to avoid timezone shifts
+            const year = parsedDate.getUTCFullYear();
+            const month = String(parsedDate.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(parsedDate.getUTCDate()).padStart(2, '0');
+            arrivalDateStr = `${year}-${month}-${day}`;
+          } catch (e) {
+            return false;
+          }
+        }
+      } else {
+        return false;
+      }
+      
+      if (start && end) {
+        // Convert start and end dates to strings for comparison
+        const startStr = format(start, 'yyyy-MM-dd');
+        const endStr = format(end, 'yyyy-MM-dd');
+        
+        // Compare strings directly to avoid timezone issues
+        return arrivalDateStr >= startStr && arrivalDateStr <= endStr;
+      } else if (start) {
+        // Convert start date to string for comparison
+        const startStr = format(start, 'yyyy-MM-dd');
+        
+        // Compare strings directly to avoid timezone issues
+        return arrivalDateStr >= startStr;
+      }
+      
+      return true;
+    });
+    
+    // Check if property changed during filtering
+    if (propertyRef.current !== propertyAtFilter) {
+      if (DEBUG_PROPERTY_CHANGE) console.log(`[Filter] ABORT: Property changed during filtering from ${propertyAtFilter} to ${propertyRef.current}`);
+      return [];
+    }
+    
+    // Then sort the filtered results
+    return sortReservations(filtered, sortBy);
+  };
+
+  // Render the reservations table view
+  const renderReservationsView = () => {
+    // Use effect to animate the loading indicator when isLoading changes
+    useEffect(() => {
+      if (isLoading) {
+        // Animate loading indicator in
+        Animated.timing(loadingHeight, {
+          toValue: 40,
+          duration: 300,
+          useNativeDriver: false
+        }).start();
+      } else {
+        // Animate loading indicator out
+        Animated.timing(loadingHeight, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: false
+        }).start();
+      }
+    }, [isLoading]);
+    
+    // Create a minimal skeleton loader for reservations
+    const renderReservationSkeleton = () => (
+      <View style={styles.skeletonContainer}>
+        {[1, 2, 3, 4, 5].map(i => (
+          <View key={i} style={styles.skeletonRow}>
+            <View style={styles.skeletonCircle} />
+            <View style={styles.skeletonContent}>
+              <View style={styles.skeletonLine} />
+              <View style={[styles.skeletonLine, { width: '60%' }]} />
+            </View>
+            <View style={styles.skeletonPrice} />
+          </View>
+        ))}
+      </View>
+    );
+    
+    // Determine if we should show the skeleton (when loading + no existing data)
+    const showSkeleton = isLoading && (!filteredReservations || filteredReservations.length === 0);
+    
+    // Determine if we should show the data (either loaded or loading with existing data)
+    const showData = !isLoading || (isLoading && filteredReservations && filteredReservations.length > 0);
+
+    // Calculate margin based on the loading height animation value
+    const filtersMargin = loadingHeight.interpolate({
+      inputRange: [0, 40],
+      outputRange: [0, 4]
+    });
+    
+    return (
+      <View style={styles.container}>
+        {/* Pull-down loading indicator that appears at the top */}
+        <Animated.View style={[
+          styles.pullDownLoadingContainer, 
+          {height: loadingHeight}
+        ]}>
+          <View style={styles.pullDownLoadingIndicator}>
+            <ActivityIndicator size="small" color="#fff" />
+            <Text style={styles.pullDownLoadingText}>Loading reservations...</Text>
+          </View>
+        </Animated.View>
+      
+        {/* Always show the filters, but disable them during loading */}
+        <Animated.View style={[styles.filtersRow, {marginTop: filtersMargin}]}>
+          <TouchableOpacity 
+            style={[styles.dateFilterButton, isLoading && styles.disabledButton]}
+            onPress={() => !isLoading && setShowDatePicker(!showDatePicker)}
+            disabled={isLoading}
+          >
+            <Icon name="calendar-outline" size={18} color="#666" />
+            <Text style={styles.dateFilterText}>
+              {startDate ? format(startDate, 'MMM d, yyyy') : 'All dates'}
+              {endDate ? ` - ${format(endDate, 'MMM d, yyyy')}` : ''}
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.sortButton, isLoading && styles.disabledButton]}
+            onPress={() => !isLoading && handleSort()}
+            disabled={isLoading}
+          >
+            <Icon name={sortBy === 'date' ? 'calendar' : 'cash-outline'} size={18} color="#666" />
+            <Text style={styles.sortText}>
+              Sort by {sortBy === 'date' ? 'Date' : 'Amount'}
+            </Text>
+          </TouchableOpacity>
+        </Animated.View>
+        
+        {/* Date picker overlay */}
+        {showDatePicker && (
+          <View style={styles.datePickerContainer}>
+            <DateRangePicker
+              startDate={startDate}
+              endDate={endDate}
+              onStartDateChange={setStartDate}
+              onEndDateChange={setEndDate}
+              onClose={() => setShowDatePicker(false)}
+            />
+          </View>
+        )}
+        
+        {/* Skeleton loader when we have no data */}
+        {showSkeleton && renderReservationSkeleton()}
+        
+        {/* Show data table when available */}
+        {showData && (
+          <ReservationsTable
+            reservations={filteredReservations}
+            sortBy={sortBy}
+            onRefresh={() => fetchReservationsForTable()}
+            refreshing={refreshing} // Don't use isLoading here as we have our custom indicator
+            onRowPress={handleBookingClick}
+          />
+        )}
+      </View>
+    );
   };
 
   // Add a function to sort reservations
@@ -1245,206 +1729,6 @@ const CalendarScreen = ({ navigation }) => {
     
     // Update state with sorted reservations to trigger re-render
     setFilteredReservations(newlySorted);
-  };
-
-  // Update the filterReservationsByDate function to use the updated sorting
-  const filterReservationsByDate = (start, end) => {
-    if (!reservations.length) return [];
-    
-    // First filter by date
-    let filtered = reservations.filter(reservation => {
-      if (!reservation.arrivalDate && !reservation.checkInDate) return false;
-      
-      // Get the arrival date value
-      const arrivalDateValue = reservation.arrivalDate || reservation.checkInDate;
-      
-      // Convert arrival date to string format for consistent comparison
-      let arrivalDateStr;
-      
-      if (arrivalDateValue instanceof Date) {
-        // For Date objects, use UTC date parts to create the string
-        arrivalDateStr = format(arrivalDateValue, 'yyyy-MM-dd');
-      } else if (typeof arrivalDateValue === 'string') {
-        // For strings like "2025-04-27", preserve the date exactly as is without timezone conversion
-        // Test if it's a YYYY-MM-DD format
-        if (/^\d{4}-\d{2}-\d{2}$/.test(arrivalDateValue)) {
-          // If already in YYYY-MM-DD format, use directly
-          arrivalDateStr = arrivalDateValue;
-        } else {
-          // Try to extract the correct date parts using parseISO
-          try {
-            const parsedDate = parseISO(arrivalDateValue);
-            // Use UTC components to avoid timezone shifts
-            const year = parsedDate.getUTCFullYear();
-            const month = String(parsedDate.getUTCMonth() + 1).padStart(2, '0');
-            const day = String(parsedDate.getUTCDate()).padStart(2, '0');
-            arrivalDateStr = `${year}-${month}-${day}`;
-          } catch (e) {
-            return false;
-          }
-        }
-      } else {
-        return false;
-      }
-      
-      if (start && end) {
-        // Convert start and end dates to strings for comparison
-        const startStr = format(start, 'yyyy-MM-dd');
-        const endStr = format(end, 'yyyy-MM-dd');
-        
-        // Compare strings directly to avoid timezone issues
-        return arrivalDateStr >= startStr && arrivalDateStr <= endStr;
-      } else if (start) {
-        // Convert start date to string for comparison
-        const startStr = format(start, 'yyyy-MM-dd');
-        
-        // Compare strings directly to avoid timezone issues
-        return arrivalDateStr >= startStr;
-      }
-      
-      return true;
-    });
-    
-    // Then sort the filtered results
-    return sortReservations(filtered, sortBy);
-  };
-
-  // Update the useEffect to also trigger on sortBy changes
-  useEffect(() => {
-    if (!showCalendarView && reservations.length) {
-      const filtered = filterReservationsByDate(startDate, endDate);
-      setFilteredReservations(filtered);
-    }
-  }, [startDate, endDate, reservations, showCalendarView, sortBy]);
-  
-  // Effect to load reservations when switching to table view
-  useEffect(() => {
-    if (!showCalendarView && selectedProperty) {
-      fetchReservationsForTable();
-    }
-  }, [showCalendarView, selectedProperty]);
-
-  // Render the reservations table view
-  const renderReservationsView = () => {
-    return (
-      <View style={styles.container}>
-        {isLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#FF385C" />
-            <Text style={styles.loadingText}>Loading reservations...</Text>
-          </View>
-        ) : (
-          <View style={{flex: 1}}>
-            {showDatePicker && (
-              <View style={styles.datePickerContainer}>
-                <DateRangePicker
-                  startDate={startDate}
-                  endDate={endDate}
-                  onStartDateChange={setStartDate}
-                  onEndDateChange={setEndDate}
-                  onClose={() => setShowDatePicker(false)}
-                />
-              </View>
-            )}
-            
-            <View style={styles.filtersRow}>
-              <TouchableOpacity 
-                style={styles.dateFilterButton}
-                onPress={() => setShowDatePicker(!showDatePicker)}
-              >
-                <Icon name="calendar-outline" size={18} color="#666" />
-                <Text style={styles.dateFilterText}>
-                  {startDate ? format(startDate, 'MMM d, yyyy') : 'All dates'}
-                  {endDate ? ` - ${format(endDate, 'MMM d, yyyy')}` : ''}
-                </Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.sortButton}
-                onPress={handleSort}
-              >
-                <Icon name={sortBy === 'date' ? 'calendar' : 'cash-outline'} size={18} color="#666" />
-                <Text style={styles.sortText}>
-                  Sort by {sortBy === 'date' ? 'Date' : 'Amount'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            
-            <ReservationsTable
-              reservations={filteredReservations}
-              sortBy={sortBy}
-              onRefresh={() => fetchReservationsForTable()}
-              refreshing={refreshing}
-              onRowPress={handleBookingClick}
-            />
-          </View>
-        )}
-      </View>
-    );
-  };
-
-  // Add a function to calculate scroll position that centers on today's date
-  const calculateCenteredScrollPosition = () => {
-    if (allMonths.length === 0 || currentMonthIndex < 0) return 0;
-    
-    // Constants for calculation
-    const monthHeight = 450;
-    const screenHeight = Dimensions.get('window').height - 200; // Approximate visible area
-    
-    // Base position for the current month
-    let basePosition = currentMonthIndex * monthHeight;
-    
-    // Calculate day offset within the month (to scroll proportionally)
-    const currentDay = today.getDate();
-    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-    
-    // Calculate how far into the month we are (0-1 value)
-    const monthProgress = (currentDay - 1) / daysInMonth;
-    
-    // Add offset based on day position in month
-    // This will scroll further down if the date is later in the month
-    const dayOffset = monthHeight * monthProgress;
-    
-    // Calculate final position that centers today's date
-    // Subtract half of screen height to center
-    let scrollPosition = basePosition + dayOffset - (screenHeight / 2);
-    
-    // Don't allow negative scroll position
-    return Math.max(0, scrollPosition);
-  };
-
-  // Update handleViewChange function to use the centered scroll position
-  const handleViewChange = (showCalendar) => {
-    // If switching to calendar and we're currently in reservations view
-    if (showCalendar && !showCalendarView) {
-      // First show loading indicator
-      setSwitchingView(true);
-      
-      // Set a small delay to ensure clean view transition
-      setTimeout(() => {
-        setShowCalendarView(true);
-        
-        // Give it another small delay to ensure smooth rendering
-        setTimeout(() => {
-          setSwitchingView(false);
-          
-          // Now scroll to the calculated position that centers today's date
-          if (allMonths.length > 0 && scrollViewRef.current && currentMonthIndex > 0) {
-            setTimeout(() => {
-              // Use centered calculation instead of just the month top
-              const scrollPosition = calculateCenteredScrollPosition();
-              scrollViewRef.current.scrollTo({
-                y: scrollPosition,
-                animated: false
-              });
-            }, 50);
-          }
-        }, 50);
-      }, 50);
-    } else {
-      // For switching to reservations, no delay needed
-      setShowCalendarView(showCalendar);
-    }
   };
 
   return (
@@ -1539,26 +1823,35 @@ const CalendarScreen = ({ navigation }) => {
       )}
       
       {/* Show either Calendar or Reservations view */}
-      {(isLoading && !bookingsFromCache) || switchingView ? (
+      {(isLoading && !bookingsFromCache && showCalendarView) ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#FF385C" />
           <Text style={styles.loadingText}>
-            Loading {showCalendarView ? 'calendar' : 'reservations'}...
+            Loading calendar...
           </Text>
         </View>
       ) : (
         showCalendarView ? (
-          <ScrollView 
-            ref={scrollViewRef}
-            style={styles.scrollView}
-            showsVerticalScrollIndicator={true}
-          >
-            {allMonths.map((monthDate, index) => (
-              <React.Fragment key={index}>
-                {renderMonthCalendar(monthDate)}
-              </React.Fragment>
-            ))}
-          </ScrollView>
+          <View style={{flex: 1, position: 'relative'}}>
+            <ScrollView 
+              ref={scrollViewRef}
+              style={styles.scrollView}
+              showsVerticalScrollIndicator={true}
+            >
+              {allMonths.map((monthDate, index) => (
+                <React.Fragment key={index}>
+                  {renderMonthCalendar(monthDate)}
+                </React.Fragment>
+              ))}
+            </ScrollView>
+            
+            {/* Overlay loading indicator for calendar */}
+            {calendarLoading && (
+              <View style={styles.calendarLoadingOverlay}>
+                <ActivityIndicator size="small" color="#FF385C" />
+              </View>
+            )}
+          </View>
         ) : (
           renderReservationsView()
         )
@@ -1982,6 +2275,94 @@ const styles = StyleSheet.create({
   },
   scrollViewContent: {
     paddingBottom: 20,
+  },
+  skeletonContainer: {
+    flex: 1,
+    paddingVertical: 15,
+    paddingHorizontal: 16,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+  },
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#f9f9f9',
+  },
+  skeletonCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f0f0f0',
+    marginRight: 12,
+  },
+  skeletonContent: {
+    flex: 1,
+    marginRight: 12,
+  },
+  skeletonLine: {
+    height: 12,
+    backgroundColor: '#f0f0f0',
+    marginBottom: 8,
+    borderRadius: 4,
+  },
+  skeletonPrice: {
+    width: 70,
+    height: 24,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 4,
+  },
+  disabledButton: {
+    opacity: 0.7,
+  },
+  miniLoadingContainer: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    padding: 10,
+    backgroundColor: 'transparent',
+    zIndex: 1000,
+  },
+  calendarLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  pullDownLoadingContainer: {
+    width: '100%',
+    backgroundColor: '#FF385C',
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 3,
+    borderBottomLeftRadius: 4,
+    borderBottomRightRadius: 4,
+  },
+  pullDownLoadingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    width: '100%',
+  },
+  pullDownLoadingText: {
+    marginLeft: 10,
+    fontSize: 14,
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
 });
 

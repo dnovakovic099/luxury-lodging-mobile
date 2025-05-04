@@ -283,9 +283,7 @@ const ReservationsScreen = ({ navigation }) => {
         return false;
       }
     });
-    
-    console.log(`[TRACE] Found ${target27Reservations.length} reservations with date 2025-04-27 before property filtering`);
-    
+        
     // If "all" is selected, just apply current sort and date filter
     if (selected === 'all') {
       console.log(`[TRACE] "all" properties selected, applying date filter only`);
@@ -320,9 +318,7 @@ const ReservationsScreen = ({ navigation }) => {
           return false;
         }
       }).length;
-      
-      console.log(`[TRACE] After date filter for "all" properties, found ${afterFilter27Count} reservations with date 2025-04-27`);
-      
+            
       // If we're filtering with 04-27 and lost our 04-27 reservations, something's wrong
       if (startDate && 
           typeof startDate === 'object' && 
@@ -356,9 +352,7 @@ const ReservationsScreen = ({ navigation }) => {
       
       return potentialIds.some(id => id === selected);
     });
-    
-    console.log(`[TRACE] Found ${filtered.length} reservations for property ${selected}`);
-    
+        
     // Check if our target date still exists after property filtering
     const propertyFiltered27Count = filtered.filter(res => {
       try {
@@ -379,11 +373,8 @@ const ReservationsScreen = ({ navigation }) => {
         return false;
       }
     }).length;
-    
-    console.log(`[TRACE] After property filtering, found ${propertyFiltered27Count} reservations with date 2025-04-27`);
-    
+        
     // Apply current sort and date filter to the filtered results
-    console.log(`[TRACE] Applying date filter with startDate: ${startDate ? JSON.stringify(startDate) : 'none'}`);
     const sortedAndFiltered = applySortAndDateFilter(filtered, startDate);
     
     // Check if our target date still exists after date filtering
@@ -407,7 +398,6 @@ const ReservationsScreen = ({ navigation }) => {
       }
     }).length;
     
-    console.log(`[TRACE] After date filtering, found ${finalFiltered27Count} reservations with date 2025-04-27`);
     
     // If we filtered with 04-27 and lost our 04-27 reservations, something's wrong
     if (startDate && 
@@ -506,7 +496,6 @@ const ReservationsScreen = ({ navigation }) => {
           }
         });
         
-    console.log(`[TRACE] Found ${target27Reservations.length} reservations with date ${debugDateString} BEFORE filtering`);
     target27Reservations.forEach((res, i) => {
       console.log(`[TRACE] Target res ${i}: ID=${res.id}, arrivalDate=${JSON.stringify(res.arrivalDate)}`);
       if (res.arrivalDate instanceof Date) {
@@ -642,7 +631,7 @@ const ReservationsScreen = ({ navigation }) => {
       }
     });
     
-    console.log(`[TRACE] Found ${exactMatchReservations.length} reservations EXACTLY matching ${filterDateStr}`);
+    console.log(`[TRACE] exactMatchReservations.length} reservations EXACTLY matching ${filterDateStr}`);
     exactMatchReservations.forEach((res, i) => {
       const dateStr = res.arrivalDate ? 
         (res.arrivalDate instanceof Date ? 
@@ -738,9 +727,7 @@ const ReservationsScreen = ({ navigation }) => {
           return false;
         }
       });
-      
-    console.log(`[TRACE] Found ${afterDateReservations.length} reservations AFTER ${filterDateStr}`);
-    
+          
     // Combine exact matches and after dates
     const result = [...exactMatchReservations, ...afterDateReservations];
     

@@ -6,38 +6,32 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
-  Dimensions, 
   TextInput,
   SafeAreaView,
   StatusBar,
-  Image,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { Camera, Paintbrush, Package, Users, Star, Sparkles, TrendingUp, DollarSign, Zap } from 'lucide-react-native';
 import { theme as defaultTheme } from '../theme';
-import { requestRevenueCalculation } from '../services/api';
 
 import PropertyPicker from '../components/PropertyPicker';
 import RevenueCard from '../components/RevenueCard';
 import GradeIndicator from '../components/GradeIndicator';
-import ReferralSection from '../components/ReferralSection';
 import PropertyPortfolioCard from '../components/PropertyPortfolioCard';
 import { useAuth } from '../context/AuthContext';
 import { useConsultation } from '../context/ConsultationContext';
 import { useTheme } from '../context/ThemeContext';
 import fundData from '../assets/fund_1_data.json';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const DARK_GREEN = '#097969';
 
 const EarnMoreScreen = () => {
   const { message, sendMessage, setMessage, isLoading, complete } = useConsultation();
   const { listings } = useAuth();
-  const { theme, isDarkMode } = useTheme();
+  const { theme } = useTheme();
   const [selectedProperty, setSelectedProperty] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('fund'); // 'fund' or 'properties'
   const [fundProperties, setFundProperties] = useState([]);
@@ -53,21 +47,6 @@ const EarnMoreScreen = () => {
   // Process fund data to match with listings images
   useEffect(() => {
     if (!fundData || !listings) return;
-    
-    // Just log image-related info from the first few listings to debug the image issue
-    console.log('===== LISTINGS IMAGE DEBUG =====');
-    listings.slice(0, 3).forEach((listing, idx) => {
-      console.log(`Listing ${idx + 1}: "${listing.internalListingName || listing.name}"`);
-      console.log(`- Images array:`, listing.images ? `exists with ${listing.images.length} items` : 'does not exist');
-      console.log(`- Image URL:`, listing.image || 'none');
-      console.log(`- Thumbnail:`, listing.thumbnail || 'none');
-      if (listing.images && listing.images.length > 0) {
-        console.log(`- First image:`, typeof listing.images[0] === 'string' ? 
-          listing.images[0] : 
-          JSON.stringify(listing.images[0]));
-      }
-      console.log('---');
-    });
     
     // Filter out entries with null Property names
     const validProperties = fundData.filter(item => item.Property && item.Location);
@@ -86,13 +65,11 @@ const EarnMoreScreen = () => {
       if (matchingListing) {
         // First check for listingImages like in ListingsScreen
         if (matchingListing.listingImages && matchingListing.listingImages.length > 0) {
-          console.log(`Found ${matchingListing.listingImages.length} listingImages`);
           // Extract URLs from listingImages objects
           propertyImages = matchingListing.listingImages.map(img => img.url || img.thumbnail || img).filter(Boolean);
         }
         // Fallback to images array
         else if (matchingListing.images && matchingListing.images.length > 0) {
-          console.log(`Found ${matchingListing.images.length} images`);
           propertyImages = matchingListing.images;
         }
         
@@ -106,9 +83,6 @@ const EarnMoreScreen = () => {
           }
         }
       }
-      
-      // Log image information for debugging
-      console.log(`Property "${item.Property}": found ${propertyImages.length} images`);
       
       // Parse values from strings to numbers - using the correct fields from JSON
       const purchasePrice = parseFloat(item["Purchase Price"]?.replace(/[$,]/g, '') || 0);
@@ -138,6 +112,8 @@ const EarnMoreScreen = () => {
       return {
         id: item.Property,
         name: item.Property,
+        // Add the display name from the matching listing if available
+        displayName: matchingListing?.name || item.Property,
         location: item.Location,
         rating: item.Rating || "4.96",
         reviews: item.Reviews || "229",
@@ -148,6 +124,14 @@ const EarnMoreScreen = () => {
         image: propertyImages[0] || null,
         thumbnail: propertyImages[0] || null,
         city: item.Location.split(',')[0].trim(),
+        
+        // Add original listing reference for accessing its properties
+        originalListing: matchingListing,
+        
+        // Add URL properties directly if available
+        airbnbListingUrl: matchingListing?.airbnbListingUrl,
+        vrboListingUrl: matchingListing?.vrboListingUrl,
+        externalUrls: matchingListing?.externalUrls,
         
         // Financial data - now using direct values from the JSON
         purchasePrice,
@@ -184,6 +168,13 @@ const EarnMoreScreen = () => {
     
     // Handle NaN or invalid values
     if (isNaN(numValue)) return '$0';
+    
+    // Format large numbers to be more compact
+    if (numValue >= 1000000) {
+      return `$${(numValue / 1000000).toFixed(2)}M`;
+    } else if (numValue >= 1000) {
+      return `$${(numValue / 1000).toFixed(0)}K`;
+    }
     
     return numValue.toLocaleString('en-US', {
       style: 'currency',
@@ -316,26 +307,28 @@ const EarnMoreScreen = () => {
     
     return (
       <ScrollView style={styles.fundScrollView}>
-        {/* Fund header stats */}
+        {/* Fund header stats - Compact design */}
         <View style={styles.fundStats}>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{fundProperties.length}</Text>
-            <Text style={styles.statLabel}>Properties</Text>
-          </View>
-          
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{formatCurrency(fundSize)}</Text>
-            <Text style={styles.statLabel}>Fund Size</Text>
-          </View>
-          
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{formatCurrency(totalYearlyNetIncome)}</Text>
-            <Text style={styles.statLabel}>Net Income</Text>
-          </View>
-          
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{fundROI}%</Text>
-            <Text style={styles.statLabel}>ROI</Text>
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{fundProperties.length}</Text>
+              <Text style={styles.statLabel}>Properties</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{formatCurrency(fundSize)}</Text>
+              <Text style={styles.statLabel}>Fund Size</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{formatCurrency(totalYearlyNetIncome)}</Text>
+              <Text style={styles.statLabel}>Net Income</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, styles.roiValue]}>{fundROI}%</Text>
+              <Text style={styles.statLabel}>ROI</Text>
+            </View>
           </View>
         </View>
         
@@ -645,15 +638,21 @@ const styles = StyleSheet.create({
     borderBottomColor: '#EBEBEB',
     backgroundColor: '#FAFAFA',
   },
+  statsRow: {
+    flexDirection: 'row',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
   statItem: {
     flex: 1,
     alignItems: 'center',
   },
   statValue: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: '#222',
-    marginBottom: 3,
+    marginBottom: 2,
   },
   cashFlowValue: {
     color: DARK_GREEN,
@@ -662,13 +661,14 @@ const styles = StyleSheet.create({
     color: DARK_GREEN,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 10,
     color: '#717171',
   },
   statDivider: {
     width: 1,
     height: 24,
     backgroundColor: '#EBEBEB',
+    alignSelf: 'center',
   },
   scrollContent: {
     paddingTop: 12,
@@ -688,22 +688,65 @@ const styles = StyleSheet.create({
   },
   fundScrollView: {
     flex: 1,
-    paddingTop: 8,
     paddingHorizontal: 16,
   },
   fundStats: {
+    marginTop: 8,
+    marginBottom: 10,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    shadowColor: 'rgba(0,0,0,0.06)',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 1,
+    shadowRadius: 2,
+    elevation: 1,
+    overflow: 'hidden',
+  },
+  statsRow: {
     flexDirection: 'row',
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EBEBEB',
-    backgroundColor: '#FAFAFA',
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#222',
+    marginBottom: 3,
+  },
+  statLabel: {
+    fontSize: 10,
+    color: '#717171',
+  },
+  statDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: '#EBEBEB',
+    marginHorizontal: 1,
+  },
+  roiValue: {
+    color: DARK_GREEN,
   },
   fundHeader: {
     display: 'none', // Hide the header completely
   },
   fundHeaderTitle: {
     display: 'none', // Hide the title completely
+  },
+  sortIndicator: {
+    display: 'none',
+  },
+  sortIcon: {
+    marginRight: 6,
+  },
+  sortText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#555555',
   },
 });
 

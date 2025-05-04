@@ -652,7 +652,6 @@ const ListingsScreen = () => {
                       <TouchableOpacity 
                         style={[styles.listingLinkButton, { backgroundColor: 'rgba(255,90,95,0.1)' }]}
                         onPress={async () => {
-                          console.log('Property:', property);
                           const url = property.airbnbListingUrl || (property.externalUrls && property.externalUrls.airbnb);
                           if (url) {
                             try {

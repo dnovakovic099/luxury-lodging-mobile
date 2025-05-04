@@ -9,6 +9,8 @@ import {
   TouchableOpacity,
   Platform,
   Animated,
+  Linking,
+  Alert,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
@@ -98,26 +100,20 @@ const PropertyPortfolioCard = ({ property, formatCurrency }) => {
 
   // Get property images or use safe fallback images
   const getPropertyImages = () => {
-    console.log('===== PROPERTY IMAGE DEBUG =====');
-    console.log('Property name:', property.name);
-    
     // First try listingImages (from ListingsScreen format)
     if (property.listingImages && Array.isArray(property.listingImages) && property.listingImages.length > 0) {
-      console.log('Using listingImages array with', property.listingImages.length, 'items');
       const urls = property.listingImages
         .filter(img => img)
         .map(img => img.url || img.thumbnail || (typeof img === 'string' ? img : null))
         .filter(url => url);
       
       if (urls.length > 0) {
-        console.log('Extracted', urls.length, 'URLs from listingImages');
         return urls;
       }
     }
     
     // Then try standard images array
     if (property.images && Array.isArray(property.images) && property.images.length > 0) {
-      console.log('Using images array with', property.images.length, 'items');
       const extractedImages = property.images
         .filter(img => img)
         .map(img => {
@@ -130,8 +126,6 @@ const PropertyPortfolioCard = ({ property, formatCurrency }) => {
         })
         .filter(url => url); // Remove any nulls
       
-      console.log('Extracted', extractedImages.length, 'URLs from images array');
-      
       if (extractedImages.length > 0) {
         return extractedImages;
       }
@@ -139,20 +133,78 @@ const PropertyPortfolioCard = ({ property, formatCurrency }) => {
     
     // Check if property has a single image or thumbnail
     if (property.image) {
-      console.log('Using main image property as fallback');
       return [property.image];
     }
     
     if (property.thumbnail) {
-      console.log('Using thumbnail as fallback');
       return [property.thumbnail];
     }
     
-    console.log('Using safe images as fallback');
     return safeImages;
   };
 
   const propertyImages = getPropertyImages();
+
+  // Handle link click for Airbnb and Vrbo
+  const handleLinkClick = async (type) => {
+    let url;
+    
+    // Try to get the original listing object from the fund properties
+    const originalListing = property.originalListing;
+    
+    // Try direct properties first
+    if (type === 'airbnb' && property.airbnbListingUrl) {
+      url = property.airbnbListingUrl;
+    } else if (type === 'vrbo' && property.vrboListingUrl) {
+      url = property.vrboListingUrl;
+    } 
+    // Then try external URLs object
+    else if (type === 'airbnb' && property.externalUrls?.airbnb) {
+      url = property.externalUrls.airbnb;
+    } else if (type === 'vrbo' && property.externalUrls?.vrbo) {
+      url = property.externalUrls.vrbo;
+    }
+    // Finally check the original listing if available
+    else if (originalListing) {
+      if (type === 'airbnb' && originalListing.airbnbListingUrl) {
+        url = originalListing.airbnbListingUrl;
+      } else if (type === 'vrbo' && originalListing.vrboListingUrl) {
+        url = originalListing.vrboListingUrl;
+      } else if (type === 'airbnb' && originalListing.externalUrls?.airbnb) {
+        url = originalListing.externalUrls.airbnb;
+      } else if (type === 'vrbo' && originalListing.externalUrls?.vrbo) {
+        url = originalListing.externalUrls.vrbo;
+      }
+    }
+    
+    // For demo purposes - use hardcoded URLs if nothing else is available
+    if (!url) {
+      if (type === 'airbnb') {
+        url = 'https://www.airbnb.com/';
+      } else if (type === 'vrbo') {
+        url = 'https://www.vrbo.com/';
+      }
+    }
+    
+    if (url) {
+      try {
+        const canOpen = await Linking.canOpenURL(url);
+        if (canOpen) {
+          await Linking.openURL(url);
+        } else {
+          Alert.alert("Cannot open link", "Unable to open the external link.");
+        }
+      } catch (error) {
+        console.error('Error opening URL:', error);
+        Alert.alert("Error", "There was a problem opening the link.");
+      }
+    } else {
+      Alert.alert(
+        "Link Not Available", 
+        `This property doesn't have a ${type === 'airbnb' ? 'Airbnb' : 'VRBO'} listing URL configured.`
+      );
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -202,12 +254,27 @@ const PropertyPortfolioCard = ({ property, formatCurrency }) => {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>City Rank</Text>
             <View style={styles.rankContainer}>
               <Text style={styles.rankValue}>#2</Text>
               <Text style={styles.rankSubtext}>in {property.city}</Text>
             </View>
           </View>
+        </View>
+
+        {/* Platform Links */}
+        <View style={styles.platformLinksContainer}>
+          <TouchableOpacity 
+            style={[styles.platformLink, styles.airbnbLink]}
+            onPress={() => handleLinkClick('airbnb')}
+          >
+            <Text style={styles.platformLinkText}>Airbnb</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.platformLink, styles.vrboLink]}
+            onPress={() => handleLinkClick('vrbo')}
+          >
+            <Text style={styles.platformLinkText}>VRBO</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Navigation Arrows */}
@@ -236,7 +303,7 @@ const PropertyPortfolioCard = ({ property, formatCurrency }) => {
         {/* Compact Header with Title, Location, and Rating */}
         <View style={styles.headerContainer}>
           <View style={styles.titleAndLocationContainer}>
-            <Text style={styles.propertyName} numberOfLines={1}>{property.name}</Text>
+            <Text style={styles.propertyName} numberOfLines={1}>{property.displayName || property.name}</Text>
             <Text style={styles.locationText} numberOfLines={1}>{property.location}</Text>
           </View>
           
@@ -309,31 +376,6 @@ const PropertyPortfolioCard = ({ property, formatCurrency }) => {
         {/* Collapsible Financial Details */}
         {showFinancialDetails && (
           <View style={styles.financialDetails}>
-            {/* Monthly Revenue Section */}
-            <View style={styles.detailSection}>
-              <Text style={styles.sectionTitle}>Monthly Revenue</Text>
-              <View style={styles.detailCard}>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Average Nightly Rate</Text>
-                  <Text style={styles.detailValue}>
-                    {formatCurrency(property.averageNightlyRate || 427)}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Occupancy Rate</Text>
-                  <Text style={styles.detailValue}>
-                    {property.occupancyRate || 86}%
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Gross Monthly Revenue</Text>
-                  <Text style={styles.detailValue}>
-                    {formatCurrency(property.grossMonthlyRevenue || 11056)}
-                  </Text>
-                </View>
-              </View>
-            </View>
-            
             {/* Property Value Section */}
             <View style={styles.detailSection}>
               <Text style={styles.sectionTitle}>Property Value</Text>
@@ -428,13 +470,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF',
     borderRadius: 12,
     overflow: 'hidden',
-    marginBottom: 16,
+    marginBottom: 20,
+    marginTop: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
-    marginHorizontal: 0, // Remove horizontal margin
+    marginHorizontal: 0,
   },
   imageContainer: {
     height: 220,
@@ -442,7 +485,7 @@ const styles = StyleSheet.create({
     width: '100%', // Ensure image container takes full width
   },
   propertyImage: {
-    width: SCREEN_WIDTH - 32, // Account for parent container padding
+    width: SCREEN_WIDTH - 32, // Adjusted for parent container padding (16px on each side)
     height: 220,
   },
   paginationContainer: {
@@ -533,8 +576,8 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   propertyName: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '500',
     color: '#222',
     marginBottom: 2,
   },
@@ -759,6 +802,44 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
   },
+  platformLinksContainer: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  platformLink: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 12,
+    marginLeft: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  airbnbLink: {
+    backgroundColor: 'rgba(255, 90, 95, 0.9)', // Airbnb red
+  },
+  vrboLink: {
+    backgroundColor: 'rgba(61, 103, 255, 0.9)', // VRBO blue
+  },
+  platformLinkText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   rankContainer: {
     flexDirection: 'column',
     alignItems: 'center',
@@ -768,9 +849,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
+    marginRight: 0,
   },
   rankSubtext: {
-    fontSize: 8,
+    fontSize: 9,
     color: 'rgba(255,255,255,0.8)',
     marginTop: 1,
   },
