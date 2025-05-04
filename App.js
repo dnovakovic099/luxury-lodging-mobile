@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NavigationContainer, useNavigation, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -14,7 +14,8 @@ import {
   Platform, 
   UIManager,
   LogBox,
-  Animated
+  Animated,
+  AppState,
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -23,6 +24,7 @@ import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import {ConsultationProvider} from './src/context/ConsultationContext';
 import NotificationService from './src/services/NotificationService';
+import AnimatedLaunchScreen from './src/components/AnimatedLaunchScreen';
 
 // Suppress warnings
 LogBox.ignoreLogs([
@@ -165,14 +167,48 @@ const Navigation = () => {
   const { userData, isLoading: authLoading } = useAuth();
   const { theme, isLoading: themeLoading } = useTheme();
   const [isReady, setIsReady] = useState(false);
-
-  // Update this effect to not disable animations
+  const [showLaunchAnimation, setShowLaunchAnimation] = useState(true);
+  const appState = useRef(AppState.currentState);
+  
+  // Update this effect to handle the launch animation
   React.useEffect(() => {
     // Mark as ready after a short delay to ensure all initialization is complete
     setTimeout(() => {
       setIsReady(true);
     }, 100);
+    
+    // Add app state listener to handle background/foreground transitions
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+        // App has come to the foreground, skip animation if resuming
+        setShowLaunchAnimation(false);
+      }
+      appState.current = nextAppState;
+    });
+    
+    // Set a maximum time for showing the launch animation
+    const maxAnimationTimer = setTimeout(() => {
+      setShowLaunchAnimation(false);
+    }, 5000); // Force-close animation after 5 seconds maximum
+    
+    return () => {
+      subscription.remove();
+      clearTimeout(maxAnimationTimer);
+    };
   }, []);
+
+  const handleAnimationFinish = () => {
+    setShowLaunchAnimation(false);
+  };
+
+  // Show the animated launch screen
+  if (showLaunchAnimation && isReady && !authLoading) {
+    return (
+      <View style={{flex: 1, backgroundColor: theme.background}}>
+        <AnimatedLaunchScreen onAnimationFinish={handleAnimationFinish} />
+      </View>
+    );
+  }
 
   // Don't render anything until we're ready
   if (!isReady || themeLoading) {

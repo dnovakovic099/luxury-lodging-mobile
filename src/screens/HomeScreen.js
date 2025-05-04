@@ -4,21 +4,16 @@ import {
   Text,
   StyleSheet,
   RefreshControl,
-  ScrollView,
   ActivityIndicator,
   SafeAreaView,
   TouchableOpacity,
-  ImageBackground,
   Animated,
   StatusBar,
-  Image,
   Platform
 } from 'react-native';
-import { BlurView } from '@react-native-community/blur';
 import RevenueSummary from '../components/RevenueSummary';
 import RevenueChart from '../components/RevenueChart';
 import PropertyUpgrades from '../components/PropertyUpgrades';
-import { theme } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import Ionicons from 'react-native-vector-icons/Ionicons';
