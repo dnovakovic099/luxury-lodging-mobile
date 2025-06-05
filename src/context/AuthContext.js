@@ -3,8 +3,12 @@ import {authenticateUser, fetchListings, getReservationsWithFinancialData} from 
 import * as Keychain from 'react-native-keychain';
 import {jwtDecode} from 'jwt-decode';
 import NotificationService from '../services/NotificationService';
+import { saveToCache, loadFromCache, CACHE_KEYS } from '../utils/cacheUtils';
 
 const AuthContext = createContext(null);
+
+// Cache key for upcoming reservations
+const UPCOMING_RESERVATIONS_CACHE = CACHE_KEYS.UPCOMING_RESERVATIONS;
 
 export function useAuth() {
   const context = useContext(AuthContext);
@@ -117,6 +121,13 @@ export function AuthProvider({ children }) {
     setUpcomingReservationsLoading(true);
     
     try {
+      // Check cache first
+      const cachedReservations = await loadFromCache(UPCOMING_RESERVATIONS_CACHE);
+      if (cachedReservations && cachedReservations.length > 0) {
+        setUpcomingReservations(cachedReservations);
+        return;
+      }
+      
       // Format dates for API - yesterday and 60 days from today
       const today = new Date();
       
@@ -221,6 +232,9 @@ export function AuthProvider({ children }) {
       const finalReservations = allUpcomingReservations.slice(0, 3);
       
       setUpcomingReservations(finalReservations);
+      
+      // Save to cache
+      await saveToCache(UPCOMING_RESERVATIONS_CACHE, finalReservations);
     } catch (error) {
       console.error('Error fetching upcoming reservations:', error);
       setUpcomingReservations([]);

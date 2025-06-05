@@ -561,16 +561,12 @@ export const getMonthlyRevenueData = async (listingIds, months = 6) => {
     const today = new Date();
     
     // Get revenue for each of the past N months
-    for (let i = 0; i < months; i++) {
-      // Calculate start and end date for this month
-      const startDate = new Date();
-      startDate.setMonth(today.getMonth() - i);
-      startDate.setDate(1); // First day of month
+    for (let i = months - 1; i >= 0; i--) {
+      // Calculate start and end date for this month more carefully
+      const startDate = new Date(today.getFullYear(), today.getMonth() - i, 1);
       startDate.setHours(0, 0, 0, 0);
       
-      const endDate = new Date(startDate);
-      endDate.setMonth(endDate.getMonth() + 1);
-      endDate.setDate(0); // Last day of month
+      const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
       endDate.setHours(23, 59, 59, 999);
       
       // Format dates for API
@@ -592,11 +588,12 @@ export const getMonthlyRevenueData = async (listingIds, months = 6) => {
       // Extract revenue value
       const revenue = monthRevenue?.result?.ownerPayout || 0;
       
-      // Store result
-      results.unshift({
+      // Store result in chronological order (oldest to newest)
+      results.push({
         month: monthName,
         revenue: revenue,
         date: startDate,
+        year: startDate.getFullYear(),
         isCurrentMonth: i === 0
       });
     }
@@ -604,6 +601,7 @@ export const getMonthlyRevenueData = async (listingIds, months = 6) => {
     // Format data for chart
     const labels = results.map(item => item.month);
     const data = results.map(item => item.revenue);
+    const years = results.map(item => item.year);
     const total = data.reduce((sum, val) => sum + val, 0);
     
     // Find current month for future revenue calculation
@@ -612,13 +610,16 @@ export const getMonthlyRevenueData = async (listingIds, months = 6) => {
     return {
       labels,
       data,
+      years,
       total,
       currentMonthIndex: currentMonthIndex
     };
   } catch (error) {
+    console.error('Error in getMonthlyRevenueData:', error);
     return {
       labels: [],
       data: [],
+      years: [],
       total: 0,
       currentMonthIndex: -1
     };

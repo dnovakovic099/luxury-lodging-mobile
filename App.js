@@ -141,15 +141,6 @@ const MainTabs = () => {
         }}
       />
       <Tab.Screen
-        name="AI"
-        component={AiScreen}
-        options={{
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="analytics" size={24} color={color} style={{fontWeight: '300'}} />
-          ),
-        }}
-      />
-      <Tab.Screen
         name="Earn More"
         component={EarnMoreScreen}
         options={{

@@ -277,14 +277,10 @@ const RevenueChart = ({ data, loading, onFetchData, onDataUpdate }) => {
   // Prepare data for the chart
   const prepareChartData = () => {
     try {
-      // Default empty data with labels
-      const labels = getLabels();
-      const defaultData = labels.map(label => ({ x: label, y: 0 }));
-      
-      // If no data is available, return default
+      // If no data is available, generate default empty data
       if (!data || !data[viewMode] || !data[viewMode].data) {
-        console.log(`No data found for ${viewMode} view`);
-        return defaultData;
+        const defaultLabels = getLabels();
+        return defaultLabels.map(label => ({ x: label, y: 0 }));
       }
 
       // Extract the data for current view mode
@@ -292,19 +288,33 @@ const RevenueChart = ({ data, loading, onFetchData, onDataUpdate }) => {
       const values = viewData.data || [];
       const viewLabels = viewData.labels || [];
       
-      if (values.length === 0 || viewLabels.length === 0) {
-        console.log(`Empty data for ${viewMode} view, using default`);
-        return defaultData;
+      // If we have both labels and data from API, use them directly
+      if (viewLabels.length > 0 && values.length > 0) {
+        const chartData = viewLabels.map((label, index) => ({
+          x: label,
+          y: index < values.length ? values[index] : 0
+        }));
+        return chartData;
       }
       
-      // For all views, create data for SimpleBarChart
-      return viewLabels.map((label, index) => ({
-        x: label,
-        y: index < values.length ? values[index] : 0
-      }));
+      // If we have data but no labels, or mismatched lengths, generate fallback
+      if (values.length > 0) {
+        const fallbackLabels = getLabels();
+        // Ensure we don't exceed available data
+        const labelsToUse = fallbackLabels.slice(0, values.length);
+        return labelsToUse.map((label, index) => ({
+          x: label,
+          y: values[index] || 0
+        }));
+      }
+      
+      // Last resort: empty data with default labels
+      const defaultLabels = getLabels();
+      return defaultLabels.map(label => ({ x: label, y: 0 }));
     } catch (error) {
-      console.error('Error in prepareChartData:', error);
-      return getLabels().map(label => ({ x: label, y: 0 }));
+      console.error('📊 Chart: Error in prepareChartData:', error);
+      const defaultLabels = getLabels();
+      return defaultLabels.map(label => ({ x: label, y: 0 }));
     }
   };
 

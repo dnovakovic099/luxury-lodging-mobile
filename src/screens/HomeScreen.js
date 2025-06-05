@@ -37,7 +37,6 @@ const GOLD = {
 
 // Cache keys
 const METRICS_CACHE = CACHE_KEYS.MONTHLY_REVENUE; // Use the standardized key from cacheUtils
-const UPCOMING_RESERVATIONS_CACHE = CACHE_KEYS.UPCOMING_RESERVATIONS; // Use the standardized key from cacheUtils
 // Set debug flag to true to debug real device cache issues
 const DEBUG_CACHE = false; // Set to true temporarily for debugging
 // Detect if we're on a real device vs simulator
@@ -152,8 +151,9 @@ const HomeScreen = ({ navigation }) => {
   
   // Add state for cached metrics
   const [metricsFromCache, setMetricsFromCache] = useState(false);
-  const [reservationsFromCache, setReservationsFromCache] = useState(false);
-  const [upcomingReservationsFromCache, setUpcomingReservationsFromCache] = useState(false);
+  
+  // Add state to track loading financial data
+  const [isLoadingFinancialData, setIsLoadingFinancialData] = useState(false);
   
   // Helper function to determine if data is invalid/empty
   const isEmptyMetricsData = (data) => {
@@ -436,6 +436,14 @@ const HomeScreen = ({ navigation }) => {
       return;
     }
     
+    // Prevent multiple simultaneous calls
+    if (isLoadingFinancialData && !forceReload) {
+      console.log('🔒 LoadFinancial: Already loading, skipping duplicate call');
+      return;
+    }
+    
+    setIsLoadingFinancialData(true);
+    
     // Only show loading if we don't have cached data or if force reload
     if (!metricsFromCache || forceReload) {
       setLoading(true);
@@ -490,16 +498,16 @@ const HomeScreen = ({ navigation }) => {
       setFutureRevenue(explicitFutureRevenue);
       
       // 3. Get monthly revenue data for chart directly from API
-      const monthlyData = await getMonthlyRevenueData(listingIds, 24);
+      const monthlyData = await getMonthlyRevenueData(listingIds, 6);
       
       // Make sure we have years data, if not, generate it
       if (!monthlyData.years || monthlyData.years.length === 0) {
         monthlyData.years = [];
         const currentMonth = today.getMonth();
         
-        // Go backward 24 months from today to match our data
+        // Go backward 6 months from today to match our data
         for (let i = 0; i < monthlyData.labels.length; i++) {
-          const monthOffset = monthlyData.labels.length - 1 - i;
+          const monthOffset = 5 - i; // For 6 months, oldest is 5 months back
           const date = new Date(today);
           date.setMonth(currentMonth - monthOffset);
           monthlyData.years.push(date.getFullYear());
@@ -541,63 +549,58 @@ const HomeScreen = ({ navigation }) => {
         total: 0
       };
       
-      // Calculate the date 6 months ago from today
-      const sixMonthsAgo = new Date(today);
-      sixMonthsAgo.setMonth(today.getMonth() - 5); // -5 because we want 6 months INCLUDING current month
-      const sixMonthsAgoYear = sixMonthsAgo.getFullYear();
-      const sixMonthsAgoMonth = sixMonthsAgo.getMonth();
+      // For 6M view, we can use the monthlyData directly since we only requested 6 months
+      sixMonthsData.labels = monthlyData.labels || [];
+      sixMonthsData.data = monthlyData.data || [];
+      sixMonthsData.years = monthlyData.years || [];
+      sixMonthsData.total = monthlyData.total || 0;
       
-      // Process all monthly data to filter for each view
-      for (let i = 0; i < monthlyData.labels.length; i++) {
-        const month = monthlyData.labels[i];
-        const value = monthlyData.data[i];
-        const year = monthlyData.years[i];
-        const monthIndex = months.indexOf(month);
+      // For other views, we need to get additional data
+      if (sixMonthsData.labels.length > 0) {
+        // Get 24 months of data for processing YTD and 2024 views
+        const extendedMonthlyData = await getMonthlyRevenueData(listingIds, 24);
         
-        // Calculate date for this data point (for comparison with sixMonthsAgo)
-        const dataDate = new Date(year, monthIndex, 1);
-        
-        // 1. Last 6 months - Include if date is on or after sixMonthsAgo
-        if (dataDate >= sixMonthsAgo) {
-          sixMonthsData.labels.push(month);
-          sixMonthsData.data.push(value);
-          sixMonthsData.years.push(year);
-          sixMonthsData.total += value;
-        }
-        
-        // 2. YTD - Current year only
-        if (year === currentYear) {
-          ytdData.labels.push(month);
-          ytdData.data.push(value);
-          ytdData.years.push(year);
-          ytdData.total += value;
-        }
-        
-        // 3. MTD - Current month and year only
-        if (year === currentYear && monthIndex === currentMonth) {
-          mtdData.labels.push(month);
-          mtdData.data.push(value);
-          mtdData.years.push(year);
-          mtdData.total += value;
-        }
-        
-        // 4. 2024 specific data
-        if (year === 2024) {
-          // We need to make sure the data is ordered by month (Jan-Dec)
-          const existing2024Index = year2024Data.labels.indexOf(month);
+        // Process extended data for other views
+        for (let i = 0; i < extendedMonthlyData.labels.length; i++) {
+          const month = extendedMonthlyData.labels[i];
+          const value = extendedMonthlyData.data[i];
+          const year = extendedMonthlyData.years[i];
+          const monthIndex = months.indexOf(month);
           
-          if (existing2024Index === -1) {
-            // Add the month in the right position
-            let insertIndex = 0;
-            while (insertIndex < year2024Data.labels.length && 
-                  months.indexOf(year2024Data.labels[insertIndex]) < monthIndex) {
-              insertIndex++;
-            }
+          // 1. YTD - Current year only
+          if (year === currentYear) {
+            ytdData.labels.push(month);
+            ytdData.data.push(value);
+            ytdData.years.push(year);
+            ytdData.total += value;
+          }
+          
+          // 2. MTD - Current month and year only
+          if (year === currentYear && monthIndex === currentMonth) {
+            mtdData.labels.push(month);
+            mtdData.data.push(value);
+            mtdData.years.push(year);
+            mtdData.total += value;
+          }
+          
+          // 3. 2024 specific data
+          if (year === 2024) {
+            // We need to make sure the data is ordered by month (Jan-Dec)
+            const existing2024Index = year2024Data.labels.indexOf(month);
             
-            year2024Data.labels.splice(insertIndex, 0, month);
-            year2024Data.data.splice(insertIndex, 0, value);
-            year2024Data.years.splice(insertIndex, 0, year);
-            year2024Data.total += value;
+            if (existing2024Index === -1) {
+              // Add the month in the right position
+              let insertIndex = 0;
+              while (insertIndex < year2024Data.labels.length && 
+                    months.indexOf(year2024Data.labels[insertIndex]) < monthIndex) {
+                insertIndex++;
+              }
+              
+              year2024Data.labels.splice(insertIndex, 0, month);
+              year2024Data.data.splice(insertIndex, 0, value);
+              year2024Data.years.splice(insertIndex, 0, year);
+              year2024Data.total += value;
+            }
           }
         }
       }
@@ -630,9 +633,18 @@ const HomeScreen = ({ navigation }) => {
       
       // Ensure each view has at least minimal structure
       if (sixMonthsData.labels.length === 0) {
-        sixMonthsData.labels = months.slice(currentMonth - 5 < 0 ? 0 : currentMonth - 5, currentMonth + 1);
-        sixMonthsData.data = Array(sixMonthsData.labels.length).fill(0);
-        sixMonthsData.years = Array(sixMonthsData.labels.length).fill(currentYear);
+        // Generate fallback 6-month labels
+        const fallbackLabels = [];
+        const fallbackYears = [];
+        for (let i = 5; i >= 0; i--) {
+          const date = new Date(today);
+          date.setMonth(today.getMonth() - i);
+          fallbackLabels.push(months[date.getMonth()]);
+          fallbackYears.push(date.getFullYear());
+        }
+        sixMonthsData.labels = fallbackLabels;
+        sixMonthsData.data = Array(6).fill(0);
+        sixMonthsData.years = fallbackYears;
       }
       
       if (ytdData.labels.length === 0) {
@@ -665,6 +677,7 @@ const HomeScreen = ({ navigation }) => {
       console.error('Error loading financial data:', error);
     } finally {
       setLoading(false);
+      setIsLoadingFinancialData(false);
     }
   };
 
@@ -704,13 +717,9 @@ const HomeScreen = ({ navigation }) => {
   const loadDashboardData = async () => {
     // First attempt: Try loading from cache
     let hasCachedMetrics = false;
-    let hasCachedReservations = false;
     
     try {
-      [hasCachedMetrics, hasCachedReservations] = await Promise.all([
-        loadMetricsFromCache(),
-        loadReservationsFromCache()
-      ]);
+      hasCachedMetrics = await loadMetricsFromCache();
     } catch (cacheError) {
       console.error('Error loading from cache:', cacheError);
     }
@@ -747,12 +756,7 @@ const HomeScreen = ({ navigation }) => {
         await loadFinancialData(needsFreshData);
       }
       
-      // Always fetch fresh reservations in the background
-      try {
-        await fetchUpcomingReservations();
-      } catch (reservationsError) {
-        console.error('Error fetching reservations:', reservationsError);
-      }
+      // AuthContext will handle reservations caching automatically
       
     } catch (error) {
       console.error('Error in dashboard data loading:', error);
@@ -768,7 +772,6 @@ const HomeScreen = ({ navigation }) => {
     
     // Reset cache flags
     setMetricsFromCache(false);
-    setReservationsFromCache(false);
     
     // Set loading state
     setLoading(true);
@@ -790,7 +793,6 @@ const HomeScreen = ({ navigation }) => {
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
     // Reset the cached state while refreshing
-    setReservationsFromCache(false);
     
     // Refresh both financial data and upcoming reservations
     Promise.all([
@@ -800,7 +802,6 @@ const HomeScreen = ({ navigation }) => {
     .then(() => {
       // Save the refreshed data to cache
       saveMetricsToCache();
-      saveReservationsToCache();
     })
     .finally(() => setRefreshing(false));
   }, []);
@@ -808,10 +809,22 @@ const HomeScreen = ({ navigation }) => {
   // Function to handle data fetching for different chart views
   const handleChartDataFetch = async (viewMode, yearInfo) => {    
     try {
+      console.log(`🔄 ChartFetch: Handling data fetch for ${viewMode} view`);
+      
+      // If financial data is already loading, don't make duplicate calls
+      if (isLoadingFinancialData) {
+        console.log(`🔒 ChartFetch: Financial data already loading, skipping ${viewMode} fetch`);
+        return null;
+      }
+      
       // Check if we already have valid data for this viewMode
       if (chartData && 
           chartData[viewMode]?.data?.length > 0 && 
           !chartData[viewMode]?.data.every(val => val === 0)) {
+        console.log(`🔄 ChartFetch: Using existing data for ${viewMode}:`, {
+          labels: chartData[viewMode].labels,
+          dataLength: chartData[viewMode].data.length
+        });
         // Return existing data
         return chartData[viewMode];
       }
@@ -820,13 +833,29 @@ const HomeScreen = ({ navigation }) => {
       const listingIds = listings?.map(listing => Number(listing.id))?.filter(id => !isNaN(id)) || [];
       
       if (!listingIds.length) {
+        console.log(`🔄 ChartFetch: No listing IDs available`);
         return null;
       }
+      
+      // Determine how many months to fetch based on view mode
+      let monthsToFetch = 6;
+      if (viewMode === 'YTD' || viewMode === '2024') {
+        monthsToFetch = 24; // Need more data for these views
+      }
+      
+      console.log(`🔄 ChartFetch: Fetching ${monthsToFetch} months for ${viewMode} view`);
             
       // Get fresh monthly data from API
-      const monthlyData = await getMonthlyRevenueData(listingIds, 24);
+      const monthlyData = await getMonthlyRevenueData(listingIds, monthsToFetch);
+      
+      console.log(`🔄 ChartFetch: Received API data for ${viewMode}:`, {
+        labels: monthlyData.labels,
+        dataLength: monthlyData.data?.length,
+        total: monthlyData.total
+      });
       
       if (!monthlyData || !monthlyData.labels || !monthlyData.data) {
+        console.log(`🔄 ChartFetch: Invalid API response for ${viewMode}`);
         return null;
       }
       
@@ -838,6 +867,37 @@ const HomeScreen = ({ navigation }) => {
       
       // Create a deep copy of chart data to avoid reference issues
       let updatedChartData = JSON.parse(JSON.stringify(chartData));
+      
+      // For 6M view (also handle ALL view)
+      if (viewMode === '6M' || viewMode === 'ALL') {
+        // For 6M view, use the API data directly since we requested exactly 6 months
+        const sixMonthsData = {
+          labels: monthlyData.labels || [],
+          data: monthlyData.data || [],
+          years: monthlyData.years || [],
+          total: monthlyData.total || 0
+        };
+        
+        // Ensure we have exactly 6 months
+        if (sixMonthsData.labels.length !== 6) {
+          // Generate fallback 6-month labels if API data is insufficient
+          const fallbackLabels = [];
+          const fallbackYears = [];
+          for (let i = 5; i >= 0; i--) {
+            const date = new Date(today);
+            date.setMonth(today.getMonth() - i);
+            fallbackLabels.push(months[date.getMonth()]);
+            fallbackYears.push(date.getFullYear());
+          }
+          sixMonthsData.labels = fallbackLabels;
+          sixMonthsData.data = Array(6).fill(0);
+          sixMonthsData.years = fallbackYears;
+          sixMonthsData.total = 0;
+        }
+        
+        updatedChartData['6M'] = sixMonthsData;
+        updatedChartData['ALL'] = sixMonthsData; // Keep ALL the same as 6M for backward compatibility
+      }
       
       // For YTD view
       if (viewMode === 'YTD') {
@@ -853,7 +913,6 @@ const HomeScreen = ({ navigation }) => {
           const month = monthlyData.labels[i];
           const value = monthlyData.data[i];
           const year = monthlyData.years?.[i] || currentYear;
-          const monthIndex = months.indexOf(month);
           
           if (year === currentYear) {
             ytdData.labels.push(month);
@@ -870,7 +929,6 @@ const HomeScreen = ({ navigation }) => {
           ytdData.years = Array(ytdData.labels.length).fill(currentYear);
         }
         
-        // Use uppercase key for YTD view
         updatedChartData['YTD'] = ytdData;
       }
       
@@ -929,104 +987,20 @@ const HomeScreen = ({ navigation }) => {
             }
           }
           
-          // Use the prepared data for 2024 view
           updatedChartData['2024'] = fullYear2024;
         } else {
           updatedChartData['2024'] = year2024Data;
         }
       }
       
-      // For 6M view (also handle ALL view)
-      if (viewMode === '6M' || viewMode === 'ALL') {
-        // Create 6M data structure
-        const sixMonthsData = {
-          labels: [],
-          data: [],
-          years: [],
-          total: 0
-        };
-        
-        // Calculate the date 6 months ago from today
-        const sixMonthsAgo = new Date(today);
-        sixMonthsAgo.setMonth(today.getMonth() - 5); // -5 because we want 6 months INCLUDING current month
-        
-        // Get last 6 months labels
-        const lastSixMonthsLabels = [];
-        for (let i = 5; i >= 0; i--) {
-          const date = new Date();
-          date.setMonth(today.getMonth() - i);
-          const monthIndex = date.getMonth();
-          lastSixMonthsLabels.push(months[monthIndex]);
-        }
-        
-        // Process all monthly data to filter for last 6 months
-        for (let i = 0; i < monthlyData.labels.length; i++) {
-          const month = monthlyData.labels[i];
-          const value = monthlyData.data[i];
-          const year = monthlyData.years?.[i] || currentYear;
-          
-          // Check if this month is in our last 6 months
-          const monthIndex = lastSixMonthsLabels.indexOf(month);
-          if (monthIndex !== -1) {
-            // If already has a value, use the larger one (fix for duplicate month issue)
-            if (sixMonthsData.labels[monthIndex] === month && sixMonthsData.data[monthIndex] > 0) {
-              // Skip if we already have a value for this month
-              continue;
-            }
-            
-            // Add or update the value
-            if (!sixMonthsData.labels[monthIndex]) {
-              // Add new month
-              sixMonthsData.labels[monthIndex] = month;
-              sixMonthsData.data[monthIndex] = value;
-              sixMonthsData.years[monthIndex] = year;
-            } else {
-              // Update existing month
-              sixMonthsData.data[monthIndex] = Math.max(sixMonthsData.data[monthIndex] || 0, value);
-            }
-            
-            // Add to total
-            sixMonthsData.total += value;
-          }
-        }
-        
-        // Ensure we have all 6 months (fill in any missing ones)
-        const finalSixMonthsData = {
-          labels: lastSixMonthsLabels.slice(),
-          data: Array(6).fill(0),
-          years: Array(6).fill(currentYear),
-          total: 0
-        };
-        
-        // Copy existing data into the final structure
-        for (let i = 0; i < sixMonthsData.labels.length; i++) {
-          if (sixMonthsData.labels[i]) {
-            const monthIndex = lastSixMonthsLabels.indexOf(sixMonthsData.labels[i]);
-            if (monthIndex !== -1) {
-              finalSixMonthsData.data[monthIndex] = sixMonthsData.data[i] || 0;
-              finalSixMonthsData.years[monthIndex] = sixMonthsData.years[i] || currentYear;
-              finalSixMonthsData.total += sixMonthsData.data[i] || 0;
-            }
-          }
-        }
-        
-        // Update both 6M and ALL views
-        updatedChartData['6M'] = finalSixMonthsData;
-        updatedChartData['ALL'] = finalSixMonthsData; // For backward compatibility
-      }
-      
-      // Set the updated chart data
+      // Update the state with the new data
       setChartData(updatedChartData);
       
-      // Trigger a cache save directly since we have fresh data
-      setTimeout(() => {
-        saveMetricsToCache();
-      }, 1000);
-      
-      // Return the specific view data
-      return updatedChartData[viewMode] || null;
+      // Return the data for the requested view mode
+      return updatedChartData[viewMode];
       
     } catch (error) {
+      console.error('Error fetching chart data:', error);
       return null;
     }
   };
@@ -1308,79 +1282,6 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
-  // Load reservations from cache
-  const loadReservationsFromCache = async () => {
-    try {
-      const cachedReservations = await loadFromCache(UPCOMING_RESERVATIONS_CACHE);
-      
-      // Validate cached data
-      if (cachedReservations && Array.isArray(cachedReservations) && cachedReservations.length > 0) {
-        // Filter out any invalid reservations
-        const validReservations = cachedReservations.filter(reservation => 
-          reservation && 
-          reservation.id && 
-          reservation.startDate && 
-          reservation.endDate && 
-          reservation.guests
-        );
-        
-        if (validReservations.length > 0) {
-          setUpcomingReservations(validReservations);
-          setUpcomingReservationsFromCache(true);
-          return true;
-        } else {
-          return false;
-        }
-      } else {
-        return false;
-      }
-    } catch (error) {
-      console.error('Home: Error loading reservations from cache:', error);
-      return false;
-    }
-  };
-  
-  // Save reservations to cache
-  const saveReservationsToCache = async () => {
-    try {
-      if (!upcomingReservations || !Array.isArray(upcomingReservations)) {
-        return false;
-      }
-      
-      // Validate reservations before caching
-      const validReservations = upcomingReservations.filter(reservation => 
-        reservation && 
-        reservation.id && 
-        reservation.startDate && 
-        reservation.endDate && 
-        reservation.guests
-      );
-      
-      if (validReservations.length === 0) {
-        return false;
-      }
-      
-      await saveToCache(UPCOMING_RESERVATIONS_CACHE, validReservations);
-      
-      return true;
-    } catch (error) {
-      console.error('Home: Error saving reservations to cache:', error);
-      return false;
-    }
-  };
-
-  // Update the useEffect for caching reservations with better validation
-  useEffect(() => {
-    // Only cache reservations if user is logged in and we have valid reservations
-    if (userData && 
-        upcomingReservations && 
-        Array.isArray(upcomingReservations) && 
-        upcomingReservations.length > 0 &&
-        !upcomingReservationsFromCache) {
-      saveReservationsToCache();
-    }
-  }, [userData, upcomingReservations, upcomingReservationsFromCache]);
-
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: GOLD.primary }]}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
@@ -1447,7 +1348,7 @@ const HomeScreen = ({ navigation }) => {
             >
               <UpcomingReservations
                 reservations={upcomingReservations}
-                loading={(upcomingReservationsLoading && !reservationsFromCache) || refreshing}
+                loading={upcomingReservationsLoading || refreshing}
               />
             </Animated.View>
             
