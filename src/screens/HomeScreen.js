@@ -35,6 +35,9 @@ const GOLD = {
   gradient: '#D4AF37'
 };
 
+// Feature flags
+const SHOW_PROPERTY_UPGRADES = false; // Set to false to hide Property Upgrades section
+
 // Cache keys
 const METRICS_CACHE = CACHE_KEYS.MONTHLY_REVENUE; // Use the standardized key from cacheUtils
 // Set debug flag to true to debug real device cache issues
@@ -1297,9 +1300,8 @@ const HomeScreen = ({ navigation }) => {
       ]}>
         <View style={styles.headerGradient}>
           <View style={[styles.headerContent, { paddingTop: Platform.OS === 'ios' ? insets.top : 0 }]}>
-            <TouchableOpacity onPress={handleMenuPress} style={styles.headerButton}>
-              <Ionicons name="menu-outline" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
+            {/* Remove menu button - replaced with spacer */}
+            <View style={{width: 40}} />
             
             <Text style={styles.headerTitle}>Luxury Lodging Host</Text>
             
@@ -1361,14 +1363,16 @@ const HomeScreen = ({ navigation }) => {
               {renderChart()}
             </Animated.View>
             
-            <Animated.View 
-              style={{ 
-                opacity: fadeAnim, 
-                transform: [{ translateY: Animated.multiply(slideAnim, 1.6) }]
-              }}
-            >
-              <PropertyUpgrades />
-            </Animated.View>
+            {SHOW_PROPERTY_UPGRADES && (
+              <Animated.View 
+                style={{ 
+                  opacity: fadeAnim, 
+                  transform: [{ translateY: Animated.multiply(slideAnim, 1.6) }]
+                }}
+              >
+                <PropertyUpgrades />
+              </Animated.View>
+            )}
           </View>
           
           {/* Action Buttons */}

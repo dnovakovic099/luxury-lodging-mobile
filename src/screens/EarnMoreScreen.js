@@ -27,13 +27,16 @@ import fundData from '../assets/fund_1_data.json';
 
 const DARK_GREEN = '#097969';
 
+// Feature flags
+const SHOW_MY_PROPERTIES_TAB = false; // Set to false to hide My Properties tab
+
 const EarnMoreScreen = () => {
   const { message, sendMessage, setMessage, isLoading, complete } = useConsultation();
   const { listings } = useAuth();
   const { theme } = useTheme();
   const [selectedProperty, setSelectedProperty] = useState('');
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('fund'); // 'fund' or 'properties'
+  const [activeTab, setActiveTab] = useState('fund'); // Always default to 'fund'
   const [fundProperties, setFundProperties] = useState([]);
 
   // Use the listings from AuthContext instead of fetching again
@@ -43,6 +46,13 @@ const EarnMoreScreen = () => {
       setSelectedProperty(listings[0].id);
     }
   }, [listings, selectedProperty]);
+
+  // Ensure active tab is 'fund' when My Properties tab is hidden
+  useEffect(() => {
+    if (!SHOW_MY_PROPERTIES_TAB && activeTab !== 'fund') {
+      setActiveTab('fund');
+    }
+  }, [activeTab]);
 
   // Process fund data to match with listings images
   useEffect(() => {
@@ -458,34 +468,36 @@ const EarnMoreScreen = () => {
           </View>
         </TouchableOpacity>
         
-        <TouchableOpacity 
-          style={[
-            styles.tab, 
-            activeTab === 'properties' && styles.activeTab,
-            activeTab === 'properties' && { borderBottomColor: '#B0976D' }
-          ]} 
-          onPress={() => setActiveTab('properties')}
-        >
-          <View style={styles.tabContent}>
-            <Ionicons 
-              name="home-outline" 
-              size={20} 
-              color={activeTab === 'properties' ? '#B0976D' : theme.text.secondary} 
-            />
-            <Text 
-              style={[
-                styles.tabText, 
-                activeTab === 'properties' ? { color: '#B0976D' } : { color: theme.text.secondary }
-              ]}
-            >
-              My Properties
-            </Text>
-          </View>
-        </TouchableOpacity>
+        {SHOW_MY_PROPERTIES_TAB && (
+          <TouchableOpacity 
+            style={[
+              styles.tab, 
+              activeTab === 'properties' && styles.activeTab,
+              activeTab === 'properties' && { borderBottomColor: '#B0976D' }
+            ]} 
+            onPress={() => setActiveTab('properties')}
+          >
+            <View style={styles.tabContent}>
+              <Ionicons 
+                name="home-outline" 
+                size={20} 
+                color={activeTab === 'properties' ? '#B0976D' : theme.text.secondary} 
+              />
+              <Text 
+                style={[
+                  styles.tabText, 
+                  activeTab === 'properties' ? { color: '#B0976D' } : { color: theme.text.secondary }
+                ]}
+              >
+                My Properties
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
       </View>
       
       {/* Content based on active tab */}
-      {activeTab === 'fund' ? renderFundTab() : renderPropertiesTab()}
+      {(activeTab === 'fund' || !SHOW_MY_PROPERTIES_TAB) ? renderFundTab() : renderPropertiesTab()}
     </SafeAreaView>
   );
 };

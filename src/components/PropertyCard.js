@@ -26,13 +26,14 @@ const GOLD = {
 
 const { width } = Dimensions.get('window');
 
-const PropertyCard = ({ property, revenue, onPress }) => {
+const PropertyCard = ({ property, revenue, onPress, clicksEnabled = true }) => {
   const { theme, isDarkMode } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const [imageLoaded, setImageLoaded] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const handlePressIn = () => {
+    if (!clicksEnabled) return;
     Animated.spring(scaleAnim, {
       toValue: 0.98,
       useNativeDriver: true,
@@ -42,6 +43,7 @@ const PropertyCard = ({ property, revenue, onPress }) => {
   };
 
   const handlePressOut = () => {
+    if (!clicksEnabled) return;
     Animated.spring(scaleAnim, {
       toValue: 1,
       useNativeDriver: true,
@@ -122,7 +124,8 @@ const PropertyCard = ({ property, revenue, onPress }) => {
     <AnimatedPressable 
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
-      onPress={onPress}
+      onPress={clicksEnabled ? onPress : undefined}
+      disabled={!clicksEnabled}
       style={[
         styles.container,
         cardShadow,

@@ -35,6 +35,9 @@ const LISTINGS_REVENUE_CACHE = 'cache_listings_revenue';
 // Debug flag for cache logging
 const DEBUG_CACHE = true;
 
+// Feature flags
+const ENABLE_LISTING_CLICKS = false; // Set to false to disable clicking on listings
+
 // Define gold colors for consistency
 const GOLD = {
   primary: '#B6944C',
@@ -214,7 +217,7 @@ const ListingsHeader = ({ title }) => {
   );
 };
 
-const PropertyListItem = React.memo(({ item, index, onPress, getPropertyRevenue }) => {
+const PropertyListItem = React.memo(({ item, index, onPress, getPropertyRevenue, clicksEnabled }) => {
   const animatedValue = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.97)).current;
   
@@ -250,7 +253,7 @@ const PropertyListItem = React.memo(({ item, index, onPress, getPropertyRevenue 
       ],
     }}>
       <TouchableOpacity
-        activeOpacity={0.7}
+        activeOpacity={clicksEnabled ? 0.7 : 1}
         onPress={() => onPress(item, revenue)}
         style={styles.touchable}
       >
@@ -258,6 +261,7 @@ const PropertyListItem = React.memo(({ item, index, onPress, getPropertyRevenue 
           property={item}
           revenue={revenue}
           onPress={() => onPress(item, revenue)}
+          clicksEnabled={clicksEnabled}
         />
       </TouchableOpacity>
     </Animated.View>
@@ -503,11 +507,14 @@ const ListingsScreen = () => {
         item={item}
         index={index}
         getPropertyRevenue={getPropertyRevenue}
-        onPress={(property, revenue) => {
+        clicksEnabled={ENABLE_LISTING_CLICKS}
+        onPress={ENABLE_LISTING_CLICKS ? (property, revenue) => {
           navigation.navigate('ListingDetail', {
             property,
             totalRevenue: revenue
           });
+        } : () => {
+          // Do nothing when clicks are disabled
         }}
       />
     );
@@ -572,11 +579,13 @@ const ListingsScreen = () => {
                   width: width * 0.65,
                   marginLeft: index === 0 ? 4 : 12,
                 }]}
-                onPress={() => navigation.navigate('ListingDetail', {
+                onPress={ENABLE_LISTING_CLICKS ? () => navigation.navigate('ListingDetail', {
                   property,
                   totalRevenue: revenue
-                })}
-                activeOpacity={0.7}
+                }) : () => {
+                  // Do nothing when clicks are disabled
+                }}
+                activeOpacity={ENABLE_LISTING_CLICKS ? 0.7 : 1}
               >
                 <View style={styles.topPropertyImageContainer}>
                   <Image 

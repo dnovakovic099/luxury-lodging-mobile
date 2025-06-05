@@ -59,19 +59,6 @@ const BOOKING_COLOR = '#FF385C';
 // Color for past bookings
 const PAST_BOOKING_COLOR = '#9E9E9E'; // Grey color for past reservations
 
-// Memoize date calculations to improve performance
-const useMemoizedDateFunctions = () => {
-  // Memoize isSameDay for better performance
-  const memoizedIsSameDay = React.useCallback((date1, date2) => {
-    if (!date1 || !date2) return false;
-    return date1.getDate() === date2.getDate() && 
-           date1.getMonth() === date2.getMonth() && 
-           date1.getFullYear() === date2.getFullYear();
-  }, []);
-
-  return { memoizedIsSameDay };
-};
-
 const CalendarScreen = ({ navigation }) => {
   // State for view toggle
   const [showCalendarView, setShowCalendarView] = useState(true);
@@ -107,11 +94,37 @@ const CalendarScreen = ({ navigation }) => {
   const [selectedReservation, setSelectedReservation] = useState(null);
   const [bookingsFromCache, setBookingsFromCache] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showTodayButton, setShowTodayButton] = useState(false);
   
   // Today's date for highlighting
   const today = new Date();
 
-  const { memoizedIsSameDay } = useMemoizedDateFunctions();
+  // Memoize isSameDay for better performance - moved directly into component
+  const memoizedIsSameDay = useCallback((date1, date2) => {
+    if (!date1 || !date2) return false;
+    return date1.getDate() === date2.getDate() && 
+           date1.getMonth() === date2.getMonth() && 
+           date1.getFullYear() === date2.getFullYear();
+  }, []);
+
+  // Use effect to animate the loading indicator when isLoading changes
+  useEffect(() => {
+    if (isLoading) {
+      // Animate loading indicator in
+      Animated.timing(loadingHeight, {
+        toValue: 40,
+        duration: 300,
+        useNativeDriver: false
+      }).start();
+    } else {
+      // Animate loading indicator out
+      Animated.timing(loadingHeight, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: false
+      }).start();
+    }
+  }, [isLoading]);
 
   // Format listings for property picker
   const formattedListings = React.useMemo(() => {
@@ -1220,6 +1233,31 @@ const CalendarScreen = ({ navigation }) => {
     }
   };
 
+  // Function to scroll back to today's month
+  const scrollToToday = () => {
+    if (currentMonthIndex >= 0 && scrollViewRef.current) {
+      const monthHeight = 450;
+      scrollViewRef.current.scrollTo({
+        y: currentMonthIndex * monthHeight,
+        animated: true
+      });
+      setShowTodayButton(false);
+    }
+  };
+
+  // Function to check if user has scrolled away from current month
+  const handleScroll = (event) => {
+    if (!allMonths.length || currentMonthIndex < 0) return;
+    
+    const scrollY = event.nativeEvent.contentOffset.y;
+    const monthHeight = 450;
+    const currentScrollMonth = Math.round(scrollY / monthHeight);
+    
+    // Show "Today" button if not viewing current month
+    const isViewingCurrentMonth = Math.abs(currentScrollMonth - currentMonthIndex) <= 0;
+    setShowTodayButton(!isViewingCurrentMonth);
+  };
+
   // Function to fetch reservations for table view
   const fetchReservationsForTable = async () => {
     if (!selectedProperty) return;
@@ -1541,25 +1579,6 @@ const CalendarScreen = ({ navigation }) => {
 
   // Render the reservations table view
   const renderReservationsView = () => {
-    // Use effect to animate the loading indicator when isLoading changes
-    useEffect(() => {
-      if (isLoading) {
-        // Animate loading indicator in
-        Animated.timing(loadingHeight, {
-          toValue: 40,
-          duration: 300,
-          useNativeDriver: false
-        }).start();
-      } else {
-        // Animate loading indicator out
-        Animated.timing(loadingHeight, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: false
-        }).start();
-      }
-    }, [isLoading]);
-    
     // Create a minimal skeleton loader for reservations
     const renderReservationSkeleton = () => (
       <View style={styles.skeletonContainer}>
@@ -1582,27 +1601,10 @@ const CalendarScreen = ({ navigation }) => {
     // Determine if we should show the data (either loaded or loading with existing data)
     const showData = !isLoading || (isLoading && filteredReservations && filteredReservations.length > 0);
 
-    // Calculate margin based on the loading height animation value
-    const filtersMargin = loadingHeight.interpolate({
-      inputRange: [0, 40],
-      outputRange: [0, 4]
-    });
-    
     return (
       <View style={styles.container}>
-        {/* Pull-down loading indicator that appears at the top */}
-        <Animated.View style={[
-          styles.pullDownLoadingContainer, 
-          {height: loadingHeight}
-        ]}>
-          <View style={styles.pullDownLoadingIndicator}>
-            <ActivityIndicator size="small" color="#fff" />
-            <Text style={styles.pullDownLoadingText}>Loading reservations...</Text>
-          </View>
-        </Animated.View>
-      
         {/* Always show the filters, but disable them during loading */}
-        <Animated.View style={[styles.filtersRow, {marginTop: filtersMargin}]}>
+        <View style={styles.filtersRow}>
           <TouchableOpacity 
             style={[styles.dateFilterButton, isLoading && styles.disabledButton]}
             onPress={() => !isLoading && setShowDatePicker(!showDatePicker)}
@@ -1625,7 +1627,7 @@ const CalendarScreen = ({ navigation }) => {
               Sort by {sortBy === 'date' ? 'Date' : 'Amount'}
             </Text>
           </TouchableOpacity>
-        </Animated.View>
+        </View>
         
         {/* Date picker overlay */}
         {showDatePicker && (
@@ -1837,6 +1839,8 @@ const CalendarScreen = ({ navigation }) => {
               ref={scrollViewRef}
               style={styles.scrollView}
               showsVerticalScrollIndicator={true}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
             >
               {allMonths.map((monthDate, index) => (
                 <React.Fragment key={index}>
@@ -1844,6 +1848,17 @@ const CalendarScreen = ({ navigation }) => {
                 </React.Fragment>
               ))}
             </ScrollView>
+            
+            {/* Today button overlay */}
+            {showTodayButton && (
+              <TouchableOpacity 
+                style={styles.todayButton}
+                onPress={scrollToToday}
+              >
+                <Icon name="today-outline" size={20} color="#fff" />
+                <Text style={styles.todayButtonText}>Today</Text>
+              </TouchableOpacity>
+            )}
             
             {/* Overlay loading indicator for calendar */}
             {calendarLoading && (
@@ -2363,6 +2378,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#FFFFFF',
     fontWeight: '600',
+  },
+  todayButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: '#FF385C',
+    borderRadius: 18,
+    padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  todayButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#FFFFFF',
+    marginLeft: 6,
   },
 });
 
