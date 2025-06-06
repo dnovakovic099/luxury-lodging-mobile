@@ -18,8 +18,8 @@ import { useTheme } from '../context/ThemeContext';
 const AuthScreen = () => {
   const { signIn, signInWithGoogle, getToken, checkToken, removeToken, errorMessage, isLoading: authLoading } = useAuth();
   const { theme, isDarkMode } = useTheme();
-  const [email, setEmail] = useState('jerome.luxurylodging@gmail.com');
-  const [password, setPassword] = useState('Abc123!!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const tokenCheckPerformed = useRef(false);
 
