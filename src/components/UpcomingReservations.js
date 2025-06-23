@@ -221,7 +221,8 @@ const UpcomingReservations = ({ reservations = [], loading = false }) => {
   };
   
   const handleReservationPress = (reservation) => {
-    // Enhance the reservation data for the modal with better financial data formatting
+    // The financial data should already be properly extracted from AuthContext.
+    // This enhancement is now primarily for ensuring date objects are correct for the modal.
     const enhancedReservation = {
       ...reservation,
       // Add required fields for ReservationDetailModal to display properly
@@ -242,45 +243,18 @@ const UpcomingReservations = ({ reservations = [], loading = false }) => {
       cancellationPolicy: reservation.airbnbCancellationPolicy || reservation.cancellationPolicy || 'Standard',
       nights: reservation.nights || 1,
       
-      // Financial data for Guest Paid section
+      // Financial data for Guest Paid section - using pre-processed data
       nightlyRate: reservation.baseRate ? reservation.baseRate / (reservation.nights || 1) : 0,
       cleaningFee: reservation.cleaningFee || 0,
-      serviceFee: reservation.serviceFee || reservation.hostChannelFee || 0,
-      occupancyTaxes: reservation.occupancyTaxes || reservation.tourismFee || reservation.cityTax || 0,
+      serviceFee: reservation.serviceFee || reservation.channelFee || 0, // Use channelFee from context
+      occupancyTaxes: reservation.tourismFee || 0, // Use tourismFee from context
       guestTotal: reservation.guestTotal || reservation.totalPrice || 0,
       
-      // Financial data for Host Payout section - expanded field checking
+      // Financial data for Host Payout section - use pre-processed values from AuthContext
       baseRate: parseFloat(reservation.baseRate) || 0,
-      
-      // Process fee - check multiple possible fields
-      processingFee: parseFloat(
-        reservation.financialData?.PaymentProcessing || 
-        reservation.financialData?.paymentProcessing || 
-        reservation.paymentProcessingFee || 
-        reservation.processingFee || 
-        0
-      ),
-      
-      // Channel fee - check multiple possible fields
-      channelFee: parseFloat(
-        reservation.channelFee || 
-        reservation.hostChannelFee ||
-        reservation.VRBOChannelFee ||
-        reservation.financialData?.channelFee ||
-        reservation.financialData?.hostChannelFee ||
-        reservation.financialData?.VRBOChannelFee ||
-        0
-      ),
-      
-      // Management fee - check multiple possible fields
-      managementFee: parseFloat(
-        reservation.pmCommission || 
-        reservation.managementFee || 
-        reservation.financialData?.pmCommission || 
-        reservation.financialData?.managementFee || 
-        reservation.financialData?.managementFeeAirbnb || 
-        0
-      ),
+      processingFee: parseFloat(reservation.processingFee) || 0,
+      channelFee: parseFloat(reservation.channelFee) || 0,
+      managementFee: parseFloat(reservation.managementFee) || 0,
       
       // Final payout
       hostPayout: parseFloat(reservation.ownerPayout) || parseFloat(reservation.airbnbExpectedPayoutAmount) || 0,

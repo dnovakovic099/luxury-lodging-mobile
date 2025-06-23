@@ -201,15 +201,68 @@ export function AuthProvider({ children }) {
         const currentListing = listings.find(l => parseInt(l.id) === parseInt(listingId));
         const listingName = currentListing?.name || 'Unknown Property';
         
-        // Extract and normalize financial data
-        const ownerPayout = parseFloat(
-          res.ownerPayout || 
-          res.hostPayout || 
-          res.airbnbExpectedPayoutAmount || 
-          res.financialData?.ownerPayout || 
-          res.financialData?.hostPayout || 
-          0
-        );
+        // Extract comprehensive financial data - similar to ReservationsScreen
+        const extractFinancialData = () => {
+          // Check for nested financial data
+          const financialData = res.financialData || {};
+          
+          // Process various fee fields
+          return {
+            // Base rate
+            baseRate: parseFloat(res.baseRate || financialData.baseRate || 0),
+            
+            // Cleaning fee
+            cleaningFee: parseFloat(res.cleaningFee || financialData.cleaningFeeValue || 0),
+            
+            // Processing fee
+            processingFee: parseFloat(
+              financialData.PaymentProcessing || 
+              financialData.paymentProcessing || 
+              res.paymentProcessingFee || 
+              res.processingFee || 
+              0
+            ),
+            
+            // Channel fee
+            channelFee: parseFloat(
+              res.channelFee || 
+              res.hostChannelFee ||
+              res.VRBOChannelFee ||
+              financialData.channelFee ||
+              financialData.hostChannelFee ||
+              financialData.VRBOChannelFee ||
+              0
+            ),
+            
+            // Management fee
+            managementFee: parseFloat(
+              res.pmCommission || 
+              res.managementFee || 
+              financialData.pmCommission || 
+              financialData.managementFee || 
+              financialData.managementFeeAirbnb || 
+              0
+            ),
+            
+            // Owner payout
+            ownerPayout: parseFloat(res.ownerPayout || res.airbnbExpectedPayoutAmount || 0),
+            
+            // Total price
+            totalPrice: parseFloat(res.totalPrice || financialData.totalPaid || 0),
+            
+            // Tourism tax / city tax
+            tourismFee: parseFloat(
+              res.tourismFee || 
+              res.cityTax || 
+              financialData.totalTax ||
+              financialData.tourismFee || 
+              financialData.cityTax || 
+              0
+            )
+          };
+        };
+
+        const financials = extractFinancialData();
         
         return {
           ...res,
@@ -217,8 +270,18 @@ export function AuthProvider({ children }) {
           listingMapId: listingId,
           listingName: res.listingName || listingName,
           property: res.property || { name: listingName },
-          // Ensure financial data is always present and normalized
-          ownerPayout: ownerPayout,
+          
+          // Include extracted financial data
+          baseRate: financials.baseRate,
+          cleaningFee: financials.cleaningFee,
+          processingFee: financials.processingFee,
+          channelFee: financials.channelFee,
+          managementFee: financials.managementFee,
+          ownerPayout: financials.ownerPayout,
+          totalPrice: financials.totalPrice,
+          tourismFee: financials.tourismFee,
+          
+          // Ensure legacy fields are also present for compatibility
           hostPayout: parseFloat(res.hostPayout || 0),
           airbnbExpectedPayoutAmount: parseFloat(res.airbnbExpectedPayoutAmount || 0)
         };
